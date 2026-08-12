@@ -6,6 +6,21 @@ the AST.
 
 **22 lessons · 33 graded exercises · 45 quiz questions · 5 capstone projects**
 
+📖 **[Read the course](https://sumilk.github.io/Python_tutorial/)** —
+every code sample executed at build time, quizzes interactive.
+
+📓 **[Browse the notebooks](https://github.com/sumilk/Python_tutorial/tree/main/notebooks)**
+— [start here](https://github.com/sumilk/Python_tutorial/blob/main/notebooks/00-START-HERE.ipynb),
+or read them on
+[nbviewer](https://nbviewer.org/github/sumilk/Python_tutorial/tree/main/notebooks/).
+To *run* them (and grade your work), clone the repo — the exercises are
+graded by the package next to them:
+
+```bash
+git clone https://github.com/sumilk/Python_tutorial && cd Python_tutorial
+uv run --with jupyterlab jupyter lab notebooks/
+```
+
 Everything is written once as structured data and rendered three ways —
 Jupyter notebooks, an interactive terminal app, and a static site — so all
 three front-ends stay in step and grade against the same test suite.
@@ -87,9 +102,15 @@ and grade on demand.
 uv run learn.py site      # -> site/index.html, one self-contained file
 ```
 
+Published at **<https://sumilk.github.io/Python_tutorial/>**.
+
 A reading copy of the whole course. Every code sample is **executed while the
 page is built**, so the output panels show real transcripts rather than
 illustrations. Quizzes stay interactive; exercises are read-only there.
+
+`.github/workflows/pages.yml` rebuilds and redeploys it on every push to
+`main` — but only after `uv run pytest` passes, so a broken lesson never
+reaches the published page.
 
 `site/index.html` is fully self-contained, so `open site/index.html` is
 usually all you need.
