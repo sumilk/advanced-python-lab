@@ -119,6 +119,22 @@ fn = namespace["generated"]
 print("\ngenerated:", fn(7), "| name:", fn.__name__,
       "| file:", fn.__code__.co_filename)
 ```
+Note the ordering in `co_varnames`: positional parameters first,
+then keyword-only, then `*args`/`**kwargs`, and finally the true
+locals. Tools rely on that layout — the first `co_argcount` names
+are the positional parameters, which is how you recover a
+signature from a code object alone.
+
+`nested code` being empty is a 3.12 result worth knowing.
+Comprehensions used to compile to a separate code object invoked
+like a function; PEP 709 inlines them, which is why `x` now
+appears among this function's varnames and there is no
+`<listcomp>` to list. The same demo on 3.11 printed one.
+
+The bottom half is the whole of code generation: compile a string,
+`exec` it into a namespace, pull the function out. Give `compile`
+a real filename — `<generated>` is what will appear in every
+traceback that passes through it.
 
 ## `ast`: parse, analyse, rewrite
 
@@ -153,6 +169,20 @@ print("names used   :", sorted({n.id for n in ast.walk(tree)
 print("\nstructure of the return expression:")
 print(ast.dump(fn.body[-1].value, indent=2)[:220], "...")
 ```
+`ast.parse` builds the tree **without executing anything**, which
+is the entire appeal: you can analyse code that you would never be
+willing to run, and you get answers about the source as written
+rather than as it happened to behave.
+
+`ast.unparse` renders nodes back to source, and it makes tree
+work far more pleasant than reading `dump` output — reach for it
+whenever you want to see what a node *is*.
+
+One trap in `fn.args`: `.args` holds only the ordinary positional
+parameters. Positional-only, keyword-only, `*args` and `**kwargs`
+live in `posonlyargs`, `kwonlyargs`, `vararg` and `kwarg`. A
+linter that reads `.args` alone silently ignores half of a modern
+signature.
 
 ```python
 import ast
@@ -187,6 +217,20 @@ checker.visit(ast.parse(code))
 for name, arg, line in checker.problems:
     print(f"  line {line}: {name}() has a mutable default for {arg!r}")
 ```
+This is what a real lint rule looks like — the mutable-default bug
+from lesson 06, caught statically. Subclass `NodeVisitor`, define
+`visit_<NodeType>`, record what you find.
+
+Two details make it correct. Defaults align to the **last** N
+parameters, hence the slice from the tail; pairing them from the
+front would report the wrong argument names. And
+`generic_visit(node)` is what keeps the walk descending, which is
+how `inner` gets checked at all — omit it and the visitor silently
+inspects only top-level functions while appearing to work.
+
+To harden it you would add `visit_AsyncFunctionDef`, since an
+`async def` is a different node type and would otherwise slip
+through untouched.
 
 ```python
 import ast
@@ -261,6 +305,21 @@ escape = "().__class__.__bases__[0].__subclasses__()"
 found = eval(escape, {"__builtins__": {}})
 print(f"   with no builtins at all, we still reached {len(found)} classes")
 ```
+`literal_eval` evaluates only literal structures, and notice it
+rejects `3+4` — an addition is an *operation*, not a literal, even
+though nothing about it is dangerous. That strictness is the
+feature: the rule is simple enough to be obviously correct.
+
+The last three lines are the ones to internalise. With
+`__builtins__` emptied — the configuration people reach for when
+they want a "safe" `eval` — an empty tuple still leads to its
+class, to `object`, to every class the process has imported, and
+from there to files and subprocesses. Nothing was smuggled in;
+the object graph was always reachable from any object at all.
+
+So: **restricting names is not a sandbox**. Either evaluate an
+allowlist of AST nodes yourself, as the next demo does, or run
+untrusted code in a separate process under OS-level limits.
 
 ```python
 import ast
@@ -303,6 +362,22 @@ for bad in ("__import__('os')", "[1,2][0]", "print(1)"):
     except ValueError as exc:
         print(f"  {bad:18} -> {exc}")
 ```
+The safety comes entirely from the shape: an **allowlist** of node
+types, with `case _` rejecting everything else. That is why the
+three rejections need no rules of their own — calls, subscripts
+and attribute access were simply never permitted, so they fall
+through to the default.
+
+Contrast a denylist, which requires you to think of every
+dangerous construct in advance and fails **open** the moment you
+miss one. An allowlist fails closed: a node type you never
+considered raises instead of running.
+
+The `match` statement is doing real work here — the patterns read
+as a grammar for the sub-language you are permitting, which is
+exactly what they are. Extending this to comparisons or function
+calls means adding a case and deciding, explicitly, what is
+allowed inside it.
 
 ## Code generation
 

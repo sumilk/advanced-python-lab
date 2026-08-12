@@ -92,6 +92,24 @@ LESSON = Lesson(
                                   "CALL", "FOR_ITER"}:
                     print(f"   {ins.opname:14} {ins.argrepr}")
             """,
+            explain="""
+            Read those two counts carefully, because they are equal — and that
+            is the lesson. Both functions contain **one** attribute load. What
+            differs is *where it sits*: in the first it is inside the loop and
+            executes once per item, in the second it executes once before the
+            loop and the body calls a plain local.
+
+            Static instruction counts tell you almost nothing on their own.
+            The disassembly is useful for asking where an instruction sits
+            relative to a loop, not for counting lines — which is why the
+            hoisted version is actually the *longer* of the two.
+
+            Note also `LOAD_ATTR` where older write-ups would say
+            `LOAD_METHOD`: 3.12 merged the two, and the `NULL|self + append`
+            annotation marks the specialised method form. And keep the
+            perspective — this hoisting is worth doing in a demonstrably hot
+            loop and nowhere else.
+            """,
         ),
         Demo(
             code="""
@@ -242,6 +260,23 @@ LESSON = Lesson(
             print(f"str.join       : {t_concat*1000:7.2f} ms")
             print(f"repeated +=    : {t_plus*1000:7.2f} ms   ({t_plus/t_concat:.1f}x slower)")
             """,
+            explain="""
+            Note the order of magnitude. Changing the *algorithm* — a set
+            instead of a list — is worth several hundredfold, and no amount of
+            micro-optimisation anywhere else in the function will ever reach
+            that. Establish the right data structure before tuning a line.
+
+            `join` wins for a structural reason: strings are immutable, so
+            `s += w` builds an entirely new string each time and copies
+            everything already accumulated, making the total work quadratic in
+            the number of pieces. `join` walks the list once, adds up the
+            final length, allocates a single buffer and fills it.
+
+            Eight times rather than the thousandfold the theory predicts,
+            because CPython cheats: when a string has exactly one reference it
+            can sometimes resize in place. Pleasant, fragile, and gone the
+            moment anything else holds a reference — do not build on it.
+            """,
         ),
         Predict(
             code="""
@@ -283,6 +318,22 @@ LESSON = Lesson(
             print(f"\\nsum(list) : {t_list*1000:6.1f} ms")
             print(f"sum(array): {t_array*1000:6.1f} ms  <- unboxing costs time")
             print("\\narray wins on memory; NumPy wins on both, if you can depend on it")
+            """,
+            explain="""
+            The memory gap is wider than it looks: the list figure counts only
+            its pointer array, while the hundred thousand integer objects it
+            points at are charged elsewhere. The `array` stores raw machine
+            ints with no per-element object at all.
+
+            And it is slower to sum, which is the part worth understanding.
+            Every read from an `array` **boxes** a fresh Python `int`, whereas
+            the list's objects already exist and only need their pointers
+            followed. Compactness is paid for at every access.
+
+            That trade is precisely what NumPy removes — not by storing data
+            more cleverly than `array`, but by keeping whole operations inside
+            C so no element is ever boxed. Which is why `array` is a narrow
+            tool for holding a lot of numbers you rarely touch one at a time.
             """,
         ),
         Text("""
@@ -344,6 +395,24 @@ LESSON = Lesson(
             t_guarded = min(timeit.repeat(lambda: guarded(20_000), number=20, repeat=3))
             t_plain = min(timeit.repeat(lambda: unguarded(20_000), number=20, repeat=3))
             print(f"\\ntry/except in a loop: {t_guarded/t_plain:.2f}x the plain loop")
+            """,
+            explain="""
+            The second number retires a piece of folklore. Since 3.11,
+            exception handling is **zero-cost**: entering a `try` emits no
+            instructions at all, and the bookkeeping is consulted only when
+            something is actually raised. Hence roughly 1.0x here. Hoisting a
+            `try` out of a loop for speed is now pure obfuscation — write the
+            version that reads better.
+
+            Function calls did *not* become free. 3.11 removed the C-level
+            recursion for Python-to-Python calls, which helped, but a call
+            still builds a frame and still costs meaningfully against a loop
+            body this small.
+
+            The measurement habit matters more than either figure. Both of
+            these changed within recent releases, so advice repeated from a
+            blog post is worth exactly what `timeit` says it is on the
+            interpreter you actually ship.
             """,
         ),
         Question(

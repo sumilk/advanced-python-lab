@@ -40,6 +40,20 @@ print("passed:", ok)
 print(f"  assert {left} == {right}")
 print("  ^ this is why pytest needs no assertEqual family")
 ```
+pytest rewrites the AST of your test modules at import time,
+replacing a bare `assert` with code that evaluates each side
+separately and keeps the values around. That is the whole trick,
+and this is a miniature of it.
+
+The payoff is that `unittest`'s parallel vocabulary —
+`assertEqual`, `assertIn`, `assertAlmostEqual`, and the rest —
+becomes unnecessary. You write the comparison Python already has
+and still get both operands in the failure message.
+
+It also explains a real pytest gotcha: only test modules and files
+registered as plugins are rewritten, so an `assert` inside a
+helper imported from elsewhere fails with no detail at all. That
+is the reason for `pytest.register_assert_rewrite`.
 
 ## Fixtures
 
@@ -151,6 +165,20 @@ for text, expected in cases:
     print(f"  word_count({text!r:14}) == {expected}  {status}")
 print("\n-> every case reported; you see the whole picture at once")
 ```
+The looping version stops dead at the first failure, so you learn
+about one broken case and nothing about the four behind it. Fix
+it, rerun, discover the next one — a serial debugging session
+where a parallel one was available.
+
+Parametrised cases are **separate tests**. Each gets its own
+result, its own name in the report, and can be rerun on its own
+with `pytest -k`. When three of five fail, the pattern among them
+is usually the diagnosis.
+
+(The `a\nb` expectation is deliberately wrong: `split()` with no
+argument splits on any whitespace, newlines included, so the
+answer is 2. Exactly the kind of assumption a table of cases
+surfaces and a loop hides.)
 
 **Quiz.** Why prefer `@pytest.mark.parametrize` over a `for` loop inside one test?
 
@@ -206,6 +234,23 @@ print("\nexpired after 61s with ttl 60:",
 print("not expired after 59s        :",
       is_expired(1000, 60, now=lambda: 1059))
 ```
+A **seam** is a place where you can change behaviour without
+editing the code. `make_token_bad` has none: the clock and the
+random source are reached for directly, so testing it means
+monkeypatching modules and hoping nothing else in the process
+noticed.
+
+The fix costs two default arguments and changes nothing for
+callers — production still calls `make_token()`. But the test can
+now pin the clock and seed the RNG, and the two identical outputs
+show the result: a fully deterministic assertion on a function
+whose entire purpose is to be unpredictable.
+
+`is_expired` makes the wider point. Once time is a parameter,
+"what happens one second past the boundary" is an ordinary
+two-line test rather than something involving `sleep` or a mock.
+Dependency injection here is not ceremony; it is the difference
+between a test you can write and one you cannot.
 
 ## Mocking, and when not to
 
@@ -260,6 +305,22 @@ loose = Mock()
 loose.send("only@one.arg")           # a plain Mock accepts anything
 print("a bare Mock accepted it:", loose.send.called)
 ```
+The last four lines are the argument for `create_autospec`. A bare
+`Mock` accepts **any** call — wrong arguments, wrong count,
+misspelled method names — and returns another Mock, so a test can
+pass with total confidence while the real object would have
+raised `TypeError`. That is worse than no test: it is a green
+check mark over a bug.
+
+`create_autospec` builds the double from the real class, so the
+signatures are enforced and typos fail immediately. Make it the
+default, and reach for a bare `Mock` only when there is no class
+to spec against.
+
+Note also what is being asserted: `call_count`, `call_args_list`
+and `assert_called_once` check the **interaction** with the
+collaborator, which is the right thing to verify when the useful
+output is a side effect rather than a return value.
 
 ```python
 from unittest.mock import Mock, patch
@@ -357,6 +418,23 @@ counterexample = next(
 )
 print("counterexample for the broken version:", counterexample)
 ```
+A **property** is something that must hold for every input rather
+than for one example — here, that decoding an encoding returns the
+original. One such statement replaces a table of hand-picked
+cases, and it covers inputs you would never have thought to write
+down.
+
+The counterexample shows the other half of the value: `['b', 'a']`,
+two elements, minimal and immediately diagnostic. Property-based
+testing tends to find the *small* failing case, which is usually
+the one that explains the bug.
+
+In real code you would use Hypothesis rather than this loop: it
+generates inputs far more adversarially — empty, huge, unicode,
+boundary numbers — and then **shrinks** any failure to the
+simplest input that still breaks. Round-trips like this one
+(encode/decode, serialise/parse, save/load) are the easiest place
+to start, because the property writes itself.
 
 ## Debugging beyond `print`
 
@@ -432,6 +510,21 @@ sys.settrace(None)
 for name, local_vars in calls:
     print(f"  called {name}({local_vars})")
 ```
+`sys.settrace` installs a callback the interpreter invokes on
+frame events — `call`, `line`, `return`, `exception`. Coverage
+measurement, debuggers and most profilers are this hook plus
+bookkeeping; `pdb` is a trace function that happens to prompt you.
+
+Note the frame is live, so `f_locals` gives the arguments as the
+callee actually received them — which is why a debugger can show
+you variables without any cooperation from the code being
+debugged.
+
+The cost is severe: a Python-level callback on every event makes
+traced code many times slower, which is why coverage runs are
+noticeably sluggish. Returning `None` here, rather than the tracer
+itself, declines line-by-line tracing inside each frame and keeps
+it to call events only.
 
 **Quiz.** Why `logger.info('value=%s', x)` rather than `logger.info(f'value={x}')`?
 

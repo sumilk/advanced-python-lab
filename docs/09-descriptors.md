@@ -76,8 +76,9 @@ print("underlying  :", c.method.__func__ is C.method)
 manual = C.method.__get__(c, C)
 print("manual bind:", manual(1))
 
-# classmethod and staticmethod are descriptors too.
-print("classmethod :", type(C.__dict__.get("method")).__name__)
+# classmethod and staticmethod are descriptors too -- but
+# different ones. A plain method is stored as a bare function:
+print("in the class dict:", type(C.__dict__["method"]).__name__)
 
 class D:
     @staticmethod
@@ -87,6 +88,19 @@ class D:
 print(type(D.__dict__["s"]).__name__, "->", D.s())
 print(type(D.__dict__["c"]).__name__, "->", D.c())
 ```
+Through an instance you get a `method`; through the class, the
+plain `function`. A bound method is nothing more than that pair —
+`__self__` holding the instance, `__func__` the original function
+— and calling it slots `__self__` in as the first argument. The
+manual `__get__` line is not an analogy for what attribute access
+does; it is the same call.
+
+The class `__dict__` shows the contrast. A plain method is stored
+as a bare function, while `staticmethod` and `classmethod` are
+**different descriptor objects** wrapping one. All three work
+because each implements `__get__` its own way: the function binds
+the instance, `classmethod` binds the class, and `staticmethod`
+binds nothing and hands back the function untouched.
 
 **Quiz.** Why does `obj.method` automatically receive `obj` as `self`?
 
@@ -143,6 +157,20 @@ except AttributeError as exc:
 print("property is just an object:", type(Celsius.degrees).__name__,
       "| fset set:", Celsius.degrees.fset is not None)
 ```
+Note that `__init__` assigns to `self.degrees`, not
+`self._degrees` — so construction runs through the setter and
+inherits the same validation as every later write. One place
+enforces the invariant, and there is no way to build an invalid
+instance.
+
+`fahrenheit` is recomputed on every read and stored nowhere, so it
+cannot drift out of step with `degrees`; having no setter, it
+rejects assignment outright.
+
+The last line is the point of the section: `property` is an
+ordinary object with `fget`/`fset`/`fdel` attributes. `@x.setter`
+mutates nothing — it constructs a **new** property with one more
+function filled in and rebinds the name.
 
 ## When a property is not enough
 
@@ -210,6 +238,17 @@ b.field = "b's value"
 print("a.field =", a.field, "  <- clobbered by b")
 print("same descriptor object:", Item.__dict__["field"] is Item.__dict__["field"])
 ```
+There is exactly **one** descriptor object per class attribute,
+created when the class body runs and shared by every instance ever
+made. So `self.value` inside `__set__` is class-wide storage:
+`a` and `b` wrote to the same box, and the second write won.
+
+The failure is quiet, which is what makes it dangerous — nothing
+raises, values simply bleed between unrelated objects, and it
+usually surfaces first under concurrency or in a long-lived
+process. Every correct descriptor keys its storage **by the
+instance**: the instance `__dict__`, a private attribute name, or
+a `WeakKeyDictionary`.
 
 ## Where to store the value
 
@@ -275,6 +314,18 @@ try:
 except AttributeError as exc:
     print("after delete:", exc)
 ```
+`__delete__` completes the protocol: on a data descriptor,
+`del obj.attr` routes here instead of removing anything from the
+instance dict. Doing the work properly means the attribute returns
+to a genuinely *unset* state rather than lingering with a stale
+value.
+
+Two small choices carry weight. Raising `AttributeError` from
+`__get__` is what makes `hasattr()` report `False` — any other
+exception type propagates and the caller gets a crash instead of
+an answer. And `from None` suppresses the chained internal error,
+so the reader sees "value has been deleted" rather than a
+"during handling of the above exception" sandwich.
 
 ## Exercise — A configurable validating descriptor `[tricky]`
 

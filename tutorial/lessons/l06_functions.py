@@ -84,6 +84,18 @@ LESSON = Lesson(
 
             print("fixed:", append_good(1), append_good(2))
             """,
+            explain="""
+            Default values are evaluated **once**, when the `def` statement
+            runs, and then stored on the function object. `__defaults__` is
+            the proof: the list sitting there has been accumulating across
+            calls, because every call that omitted `target` mutated that one
+            object.
+
+            The `None` sentinel fixes it by moving the construction *inside*
+            the body, where it runs per call. The same reasoning applies to
+            any default computed at definition time — `timestamp=now()`
+            freezes the value at import and never updates again.
+            """,
         ),
         Demo(
             code="""
@@ -154,6 +166,18 @@ LESSON = Lesson(
             pairs = [(1, ("a", "b")), (2, ("c", "d"))]
             for num, (first, second) in pairs:
                 print(f"  {num}: {first}{second}")
+            """,
+            explain="""
+            One star spreads a sequence across positional slots, two stars
+            spread a mapping across keyword slots. The starred *assignment* is
+            the same idea running backwards — it collects rather than
+            spreads, and `middle` is always a list, empty one included.
+
+            In a literal, `[*a, *b]` and `{**a, **b}` build a new object
+            without touching either input, which makes them the cleanest way
+            to merge; for dicts, later keys win. And the `for` loop shows that
+            unpacking targets can mirror any nesting in the data, which beats
+            indexing `pair[1][0]` in every respect.
             """,
         ),
         Text("""
@@ -265,6 +289,20 @@ LESSON = Lesson(
             print("shared cell:", get(), "| same cell object:",
                   bump.__closure__[0] is get.__closure__[0])
             """,
+            explain="""
+            A closure does not copy the values it captures. Each free variable
+            lives in a **cell** — a tiny box — and the inner function holds a
+            reference to the box, not to its contents. `co_freevars` names
+            them (alphabetically, which is why `extra` comes first) and
+            `__closure__` hands you the cells themselves.
+
+            The second half is the consequence: two functions built by the
+            same call share the very same cell, so `bump` and `get` are
+            reading and writing one `n`. That is what `nonlocal` operates on,
+            and it is why a closure captures a **variable** rather than a
+            value — the classic late-binding surprise in a loop is this same
+            fact seen from the other side.
+            """,
         ),
         Predict(
             code="""
@@ -318,6 +356,19 @@ LESSON = Lesson(
             print("attributes :", greet.__dict__)
             print("code       : argcount =", greet.__code__.co_argcount,
                   "| varnames =", greet.__code__.co_varnames)
+            """,
+            explain="""
+            A function is an ordinary object with a `__dict__`, so you can
+            hang arbitrary attributes on it — which is exactly how decorators
+            stash per-function state like a call counter or a cache handle.
+
+            The rest is the raw material every introspection tool is built
+            from: `__defaults__` (positional defaults only), `__annotations__`
+            (a plain dict, enforced by nobody), and `__code__` with the
+            argument count and local names. `__qualname__` matches
+            `__name__` here only because `greet` is top level; for a method it
+            would read `Class.method`, which is what makes tracebacks
+            navigable.
             """,
         ),
         Text("""
@@ -373,6 +424,19 @@ LESSON = Lesson(
             # partialmethod's cousin for the common "flag variant" pattern:
             debug_connect = partial(connect, timeout=1)
             print(debug_connect("db1", user="u", password="p"))
+            """,
+            explain="""
+            `partial` returns a new callable holding the original function
+            plus the frozen arguments — and, crucially, keeps all three
+            visible as `.func`, `.args` and `.keywords`. A `lambda` doing the
+            same job is an opaque blob by comparison, and cannot be pickled.
+
+            `signature()` understands the wrapper and reports what is **left
+            to supply**: `host` has disappeared because it was filled
+            positionally, while `user` has been demoted to a keyword with a
+            default. That is the habit worth forming — ask `inspect` what a
+            callable accepts rather than assuming, because by the time your
+            code sees it, it may well have been wrapped twice.
             """,
         ),
         Exercise(

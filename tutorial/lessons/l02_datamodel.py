@@ -379,6 +379,16 @@ LESSON = Lesson(
                 def __bool__(self): return 200 <= self.status < 300
             print("with __bool__:", bool(Fixed(200, [])), bool(Fixed(500, [1])))
             """,
+            explain="""
+            With no `__bool__`, truthiness falls back to `__len__` — so a
+            perfectly successful response carrying zero items is **falsy**,
+            and `if resp:` quietly takes the failure branch.
+
+            Two rules come out of this. Define `__bool__` whenever *empty* and
+            *invalid* are different states for your type. And when you mean
+            "was I given one at all", write `if resp is not None:` — the only
+            test that cannot be hijacked by either protocol.
+            """,
         ),
         Text("""
         ## Callables, and the attribute hooks

@@ -38,6 +38,26 @@ print("starmap    :", list(it.starmap(pow, [(2, 3), (3, 2)])))
 print("zip_longest:", list(it.zip_longest("ab", "xyz", fillvalue="-")))
 print("batched    :", list(it.batched("abcdefg", 3)))
 ```
+Five families, and knowing which is which is most of the value:
+
+- **infinite sources** — `count`, `cycle`, `repeat`. Every one
+  needs something downstream to stop it; the `islice` calls here
+  are not decoration.
+- **running aggregates** — `accumulate` takes any binary
+  function, so a running maximum is one argument away from a
+  running total.
+- **flatteners** — `chain` for separate arguments,
+  `chain.from_iterable` when you have a single iterable *of*
+  iterables. Reaching for the wrong one is the usual stumble.
+- **selectors** — `compress` picks by mask; `takewhile` and
+  `dropwhile` stop testing after the first failure, which is why
+  `dropwhile` keeps the trailing `1` rather than filtering it.
+- **reshapers** — `pairwise` for sliding windows, `batched`
+  (3.12) for fixed chunks, `zip_longest` when the inputs differ in
+  length and truncating would lose data.
+
+All of them return iterators. Nothing is computed until consumed,
+which is what makes chaining them cheap.
 
 ```python
 import itertools as it
@@ -52,6 +72,22 @@ print("with replacement:", list(it.combinations_with_replacement("ab", 2)))
 grid = [(r, c) for r, c in it.product(range(2), range(3))]
 print("nested loops    :", grid)
 ```
+`product` is nested loops written flat — two arguments is a double
+`for`, and `repeat=3` is three nested loops over the same
+iterable. The `grid` line at the bottom is the idiom worth
+keeping: it removes a level of indentation without changing the
+meaning.
+
+The distinction among the other three is order and reuse.
+`permutations` treats `("a","b")` and `("b","a")` as different;
+`combinations` does not; `combinations_with_replacement` allows an
+element to appear twice. All three select by **position**, not by
+value — feed them a sequence with duplicates and you get duplicate
+results back.
+
+Watch the growth. These are factorial and exponential functions,
+so `list()` on a product of a few modest inputs is how a script
+quietly consumes all available memory. Bound them first.
 
 ## `groupby` groups *consecutive* runs
 
@@ -182,6 +218,21 @@ def _(obj: Sequence): return f"sequence of {len(obj)}"
 
 print(size((1, 2, 3)), "|", size([1]), "|", size(5))
 ```
+`singledispatch` turns a wall of `isinstance` checks into
+registrations that live next to the types they handle — and, more
+usefully, lets a *different module* add a case later without
+touching the original function. That is the extensibility an
+if-chain cannot offer.
+
+Dispatch is on the **first argument only**, and it follows the
+MRO: registering `Sequence` catches tuples and lists together,
+because both are registered subclasses of that ABC. The base
+implementation is the fallback for everything unmatched, and
+raising there beats returning `None` — an unserialisable type
+should fail loudly rather than silently produce nothing.
+
+Inside a class you want `singledispatchmethod`, since the plain
+decorator would dispatch on `self` and match every call.
 
 ## `operator`: functions for the syntax
 
@@ -218,6 +269,17 @@ t_getter = timeit.timeit(lambda: sorted(data, key=itemgetter(0)), number=100)
 print(f"lambda {t_lambda*1000:.1f} ms vs itemgetter {t_getter*1000:.1f} ms"
       f"  ({t_lambda/t_getter:.2f}x)")
 ```
+Roughly three times quicker, and the reason is structural rather
+than clever: `itemgetter` is C code called directly by `sorted`,
+while `lambda p: p[0]` is a Python frame pushed and popped once
+per comparison. On a sort key — the hottest callback there is —
+that overhead is the bulk of the work.
+
+The extras are worth knowing beyond the speed. `itemgetter(0, 1)`
+pulls several fields as a tuple, which is exactly the shape of a
+multi-column sort key. `attrgetter` follows dotted paths, so
+`"meta.version"` works without a lambda. And `methodcaller` covers
+the `map(lambda s: s.upper(), ...)` case.
 
 
 ## Recipes worth memorising
@@ -241,6 +303,7 @@ def unique_everseen(iterable, key=None):
             yield item
 
 def sliding_window(iterable, n):
+    iterable = iter(iterable)       # REQUIRED -- see the note below
     window = deque(it.islice(iterable, n - 1), maxlen=n)
     for item in iterable:
         window.append(item)
@@ -257,6 +320,24 @@ print("sliding_window :", list(sliding_window(range(5), 3)))
 odd, even = partition(lambda n: n % 2 == 0, range(6))
 print("partition      :", list(odd), list(even))
 ```
+The `iter(iterable)` line in `sliding_window` is the one to study,
+because without it the function is subtly wrong. `islice` would
+consume the first `n-1` items from a *fresh* iterator over
+`range(5)`, and the `for` loop would then start again from zero —
+producing `(0, 1, 0), (1, 0, 1)` before accidentally coming right.
+Passing `iter(range(5))` would have masked it.
+
+The general rule: **any function that reads from an iterable in
+two separate steps must call `iter()` first**. A list or range
+hands out a new iterator each time it is iterated; a generator
+does not. Without the call, your function quietly behaves
+differently depending on what it was handed.
+
+The others are worth keeping as written. `unique_everseen`
+preserves order where `set()` would not, and its `key` argument
+gives you case-insensitive dedup for free; `partition` gets both
+halves in one pass — subject to `tee`'s buffering caveat from
+lesson 05.
 
 **Quiz.** Which is the right tool for `[[1,2],[3,4]]` → `[1,2,3,4]`?
 

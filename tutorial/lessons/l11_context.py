@@ -72,6 +72,20 @@ LESSON = Lesson(
             except ValueError as exc:
                 print("caught outside:", exc)
             """,
+            explain="""
+            Two things to take from the trace. `__enter__`'s **return value**
+            is what `as` binds, and it need not be the manager — here it is a
+            string, just as `open()` hands back the file and a lock hands back
+            `None`. And `exit` runs in all three cases; that is the guarantee
+            you are buying.
+
+            The decisive part is `__exit__`'s return value: truthy
+            **suppresses** the exception, anything falsy lets it propagate.
+            `None` is falsy, which is why cleanup-only managers get the right
+            behaviour by simply not returning. The corresponding trap is
+            real — a stray `return True` at the end of an `__exit__` swallows
+            every error raised in the body, and nothing anywhere reports it.
+            """,
         ),
         Predict(
             code="""
@@ -150,6 +164,19 @@ LESSON = Lesson(
                     print("  (exception propagated)")
                 print()
             """,
+            explain="""
+            `broken` never prints its teardown. Under `@contextmanager` the
+            exception from the body is **thrown into the generator at the
+            `yield`** — the `throw` mechanism from lesson 05 — so with nothing
+            to catch it the generator dies on that line and everything after
+            it is skipped.
+
+            This is why the `try/finally` is not a stylistic preference: it is
+            the only thing that makes teardown happen on the failure path,
+            which is the path you wrote the manager for. The rule is easy to
+            apply — **if there is code after the `yield`, it belongs in a
+            `finally`**.
+            """,
         ),
         Demo(
             code="""
@@ -193,6 +220,19 @@ LESSON = Lesson(
                 pass
             print(log2)
             """,
+            explain="""
+            Since the exception surfaces *at the yield*, an ordinary `except`
+            in the generator suppresses it — this is the generator-shaped
+            equivalent of returning `True` from `__exit__`, and it deserves
+            the same suspicion. `tolerate` catches only the types it was
+            given, which is the version worth writing.
+
+            `transaction` uses all three clauses deliberately. The rollback
+            re-raises with a bare `raise`, preserving the original exception
+            and traceback rather than a reconstruction. And `COMMIT` sits in
+            the `else`, not after the `try` — so there is no arrangement of
+            control flow in which a failed body still commits.
+            """,
         ),
         Text("""
         ## The `contextlib` toolbox
@@ -234,6 +274,20 @@ LESSON = Lesson(
             with closing(h) as handle:
                 print("  using, open =", handle.open)
             print("after:", h.open)
+            """,
+            explain="""
+            Four small tools, each replacing a shape of boilerplate:
+
+            - `suppress(X)` is a `try/except X: pass` that cannot accidentally
+              grow a body — which is what makes it safer than the long form,
+              not merely shorter.
+            - `redirect_stdout` reassigns `sys.stdout` for the block, the
+              standard way to capture output from code you cannot change.
+            - `nullcontext()` is the do-nothing manager, so an *optional*
+              lock needs no `if`/`else` around the `with` and only one code
+              path exists.
+            - `closing(obj)` adapts any object with a `.close()` into a
+              manager, for the many older APIs that never grew `__enter__`.
             """,
         ),
         Demo(
@@ -301,6 +355,21 @@ LESSON = Lesson(
                 open_pool(3, fail_at=2)
             except RuntimeError as exc:
                 print(" ", exc)
+            """,
+            explain="""
+            `ExitStack` is for the case the `with` statement cannot express: a
+            number of resources known only at runtime. Each
+            `enter_context` registers a cleanup, and leaving the block unwinds
+            them in reverse order.
+
+            `pop_all()` is the subtle part, and it solves a real problem —
+            all-or-nothing acquisition. On the failure path the stack is still
+            armed, so the connections opened before the error are closed on
+            the way out and nothing leaks. On the success path `pop_all`
+            **transfers ownership** to a new stack that the function returns,
+            disarming the original so the `with` block closes nothing. Note
+            what that leaves behind: the caller now holds `keeper` and is
+            responsible for closing it.
             """,
         ),
         Text("""
@@ -400,6 +469,19 @@ LESSON = Lesson(
             @section("decorated")
             def go(): pass
             go()
+            """,
+            explain="""
+            Inheriting from `ContextDecorator` gets you `__call__` for free,
+            so one class serves as both a block and a decorator with no
+            duplicated logic. `@contextmanager` already includes it, which is
+            why `section` works in both positions without being told to.
+
+            One caveat the timer makes concrete: as a decorator the *same
+            instance* is reused for every call of the wrapped function, so
+            `self.elapsed` is overwritten each time and a recursive function
+            will trample it mid-flight. State that must be per-invocation
+            belongs in a fresh object created inside `__enter__`, not on the
+            decorator.
             """,
         ),
         Question(

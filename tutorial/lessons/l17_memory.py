@@ -55,6 +55,23 @@ LESSON = Lesson(
             del n
             print("done")
             """,
+            explain="""
+            `getrefcount` reports one more than you would expect, because
+            passing the object to it creates a reference — hence the `- 1`
+            throughout. Storing it in a list twice counts twice: the
+            container holds a reference per slot, not per object.
+
+            The `Noisy` output shows the other half. CPython frees an object
+            **the instant** its count reaches zero, so "freeing first" appears
+            at the rebinding line, before the next statement runs. That
+            promptness is why files and sockets so often close on time here
+            without anyone thinking about it.
+
+            It is also an implementation detail, not a language guarantee.
+            PyPy and friends collect whenever they please, so code that relies
+            on this timing breaks on another interpreter — which is what `with`
+            is for.
+            """,
         ),
         Text("""
         ## Cycles need the collector
@@ -101,7 +118,10 @@ LESSON = Lesson(
             print("is_tracked(int)  :", gc.is_tracked(1))
             print("is_tracked(str)  :", gc.is_tracked("hello"))
             print("is_tracked(list) :", gc.is_tracked([]))
-            print("is_tracked(tuple of ints):", gc.is_tracked((1, 2)))
+            atoms = (1, 2)
+            print("is_tracked(tuple of ints):", gc.is_tracked(atoms), "at creation")
+            gc.collect()
+            print("   ...after a collection :", gc.is_tracked(atoms))
             print("   ^ CPython untracks tuples proven to hold only atomics")
 
             # gc.get_referrers / get_referents walk the object graph.
@@ -110,6 +130,21 @@ LESSON = Lesson(
             referrers = [type(r).__name__ for r in gc.get_referrers(target)]
             print("who points at target:", referrers)
             print("what target points at:", gc.get_referents(target))
+            """,
+            explain="""
+            The cycle collector only has to examine objects that could *be* in
+            a cycle, so anything incapable of referencing another object —
+            ints, strings — is never tracked at all. That exclusion is a large
+            part of why collection is as cheap as it is.
+
+            The tuple line shows the refinement: a tuple holding only atomics
+            can also be untracked, but the runtime has to *prove* it first, so
+            it is tracked at creation and dropped from tracking on a later
+            pass. Hence `True` and then `False` from the same object.
+
+            `get_referrers` and `get_referents` walk the graph in either
+            direction. The first is the one you want when an object refuses to
+            die and you need to know what is still pointing at it.
             """,
         ),
         Text("""
@@ -217,8 +252,21 @@ LESSON = Lesson(
             def on_death(reference):
                 print("  callback: the object is gone")
             temp = Data(3)
-            weakref.ref(temp, on_death)
+            watcher = weakref.ref(temp, on_death)   # must be kept alive!
             del temp
+            """,
+            explain="""
+            A weak reference is called like a function and returns the object,
+            or `None` once it is gone — so `ref()` is both the accessor and
+            the liveness test in one. A `WeakValueDictionary` applies that per
+            entry: the cache holds nothing alive, and entries vanish on their
+            own when the last real owner lets go. That is the correct shape
+            for a cache, which should never be the reason an object survives.
+
+            The `watcher =` binding is not incidental. A weakref is itself an
+            object, and an unstored one is collected immediately — at which
+            point its callback can never fire, silently. If you want the
+            notification, keep the reference.
             """,
         ),
         Demo(
@@ -259,6 +307,23 @@ LESSON = Lesson(
             gc.enable()
             print("(the strong version needs the cycle collector; the weak one does not)")
             """,
+            explain="""
+            With the collector switched off, the difference is stark: 51
+            objects stranded against none. Parent and child each hold a strong
+            reference to the other, so neither count ever reaches zero and
+            refcounting alone can never free them. They are not lost — the
+            cycle collector will take them — but they linger until it runs.
+
+            Making the upward link weak breaks the cycle, and the whole tree
+            dies the moment the root does. The `parent` property hides the
+            difference, so callers still write `node.parent` and get an
+            object or `None`.
+
+            That is the rule for any bidirectional structure — trees with
+            parent pointers, observers holding their subject, caches keyed on
+            live objects: **the back-reference should be weak**. Ownership
+            points one way.
+            """,
         ),
         Text("""
         ## Measuring memory
@@ -295,6 +360,23 @@ LESSON = Lesson(
             print(f"  current {current/1024:.0f} KiB, peak {peak/1024:.0f} KiB")
             tracemalloc.stop()
             del hog
+            """,
+            explain="""
+            The first two lines are the trap: `getsizeof` reports the list's
+            own bookkeeping and nothing about the ten rows it points at, so
+            184 bytes is off by a factor of four hundred. Summing one level
+            deeper gets closer, and for anything genuinely nested you would
+            need to recurse — and remember shared objects, which naive
+            recursion counts twice.
+
+            `tracemalloc` is the tool that answers the real question. Take a
+            snapshot, do the work, take another, and `compare_to` ranks the
+            growth **by the line of code responsible**. That is what turns "we
+            are using too much memory" into a file and a line number.
+
+            `peak` matters as much as `current`: a transient list that is
+            built and discarded never shows up in a final measurement, but it
+            is exactly what triggers the out-of-memory kill.
             """,
         ),
         Predict(
@@ -346,6 +428,22 @@ LESSON = Lesson(
             big1, big2 = 10 ** 6, 10 ** 6
             print("small ints are shared:", a is b, "| large ones are not:", big1 is big2)
             print("empty containers are never shared:", [] is [], {} is {})
+            """,
+            explain="""
+            Fifty thousand equal strings, fifty thousand distinct objects —
+            until `intern` collapses them to twenty. This is the one case
+            where interning is worth doing deliberately: keys parsed out of
+            JSON or CSV, where the same handful of field names is rebuilt for
+            every record. The strings compare equal either way; you are paying
+            for storage you do not need.
+
+            It also speeds up comparison, since interned strings can settle
+            equality by identity before falling back to comparing characters.
+
+            The bottom lines are the reminder from lesson 01: small integers
+            and literal strings are shared by the runtime, larger ones are
+            not, and containers never are. Convenient to know, never something
+            to write code against.
             """,
         ),
         Question(

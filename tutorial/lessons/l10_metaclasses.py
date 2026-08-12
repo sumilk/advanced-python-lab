@@ -124,6 +124,22 @@ LESSON = Lesson(
             except ValueError as exc:
                 print("caught:", exc)
             """,
+            explain="""
+            `__init_subclass__` runs on the **subclass** as it is created, and
+            it is an implicit classmethod — the decorator is not needed and
+            adding it is a mistake. Keyword arguments in the class header
+            (`name="json"`, `abstract=True`) are handed straight to it, which
+            buys you per-subclass configuration with no metaclass in sight.
+
+            Two habits to copy: forward what you do not consume with
+            `super().__init_subclass__(**kwargs)`, so a cooperative hierarchy
+            keeps working, and give intermediate bases an opt-out — an
+            `Exporter` that is not itself a plugin should not land in the
+            registry.
+
+            Against the class decorator in lesson 07, the difference is that
+            this cannot be forgotten. Subclassing *is* the registration.
+            """,
         ),
         Question(
             prompt="`__init_subclass__` is called with which class as its argument?",
@@ -180,6 +196,23 @@ LESSON = Lesson(
             m.copy_to(n, "k")
             print("concrete method worked:", n.read("k"))
             print("abstract methods:", sorted(Storage.__abstractmethods__))
+            """,
+            explain="""
+            `@abstractmethod` does not stop anything by itself — it records
+            the name in `__abstractmethods__`, and instantiation is what
+            refuses while that set is non-empty. So the error arrives at
+            `Storage()`, not at the class statement, and an abstract subclass
+            of an abstract class is a perfectly legal thing to define.
+
+            `copy_to` is the reason to bother: a concrete method written
+            against operations that do not exist yet, inherited by every
+            implementation for free.
+
+            Two details. The abstract property needs `@property` outermost and
+            `@abstractmethod` innermost, or the wrapper hides the marker. And
+            `Memory` satisfies `name` with a plain class attribute — the check
+            is only that the name is *defined*, never that it kept the same
+            form.
             """,
         ),
         Demo(
@@ -262,6 +295,21 @@ LESSON = Lesson(
             w = Widget(3)
             print("instance:", w.size, "| class attr:", Widget.created_by)
             print("type(Widget) =", type(Widget).__name__)
+            """,
+            explain="""
+            Read the trace against the `---` marker. Everything above it
+            happened once, at **class creation**: `__prepare__` supplies the
+            mapping the class body executes into, `__new__` builds the class
+            object, `__init__` configures the finished article.
+
+            Everything below it happens per **instantiation**, and that is the
+            step people conflate. `Meta.__call__` intercepts `Widget(3)` — it
+            is the hook that can cache instances, enforce a singleton, or
+            reject arguments before `Widget.__init__` ever sees them.
+
+            `type(Widget)` is `Meta`, which is the whole idea in one line: a
+            metaclass stands to a class exactly as a class stands to an
+            instance.
             """,
         ),
         Demo(
@@ -395,6 +443,19 @@ LESSON = Lesson(
             class MetaAB(MetaA, MetaB): pass
             class C(A, B, metaclass=MetaAB): pass
             print("resolved:", type(C).__name__, [m.__name__ for m in type(C).__mro__[:3]])
+            """,
+            explain="""
+            The error states the rule exactly: a class's metaclass must be a
+            (non-strict) subclass of the metaclass of *every* base. Two
+            unrelated metaclasses have no common descendant, so there is no
+            legal choice and the class statement fails outright.
+
+            The repair is mechanical once you know it. What should give you
+            pause is how you arrive here: combine two libraries that each
+            reached for a metaclass, and you are the one writing `MetaAB` to
+            reconcile them. That is the strongest practical argument for
+            `__init_subclass__` or a class decorator — neither composes into a
+            dead end.
             """,
         ),
         Exercise(

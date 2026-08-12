@@ -55,6 +55,17 @@ coro = fetch("unused", 0)
 print("\ncalling it produced:", type(coro).__name__)
 coro.close()
 ```
+Both versions do identical work; only the *scheduling* differs.
+Two `await`s cost 0.05 + 0.05 because `await` means **wait here** —
+nothing overlaps. `create_task` hands each coroutine to the loop
+straight away, so both sleeps are already in flight before the
+first `await task_a` runs, and the pair costs one 0.05s wait.
+
+The tail shows the other half of the rule: `fetch("unused", 0)`
+builds a coroutine object and executes **not one line** of the
+body. A coroutine you forget to await or wrap in a task simply
+never runs — the most common asyncio bug there is. (`close()`
+here just avoids the "never awaited" warning at shutdown.)
 
 **Quiz.** `await slow_a(); await slow_b()` — do these run concurrently?
 
@@ -100,6 +111,17 @@ async def main():
 
 asyncio.run(main())
 ```
+`return_exceptions=True` turns a failure into a *value*: the
+results list still has one entry per argument, in
+**argument order**, with the exception object sitting in the
+failed slot. You have to check types on the way out — nothing
+raises.
+
+Drop that flag and the `ValueError` propagates out of the `await`
+as soon as `b` fails — but `c` is **still running**. `gather` does
+not cancel siblings. That is the trap: the caller handles an error
+while orphaned work continues in the background, usually surfacing
+later as a "Task exception was never retrieved" warning.
 
 ```python
 import asyncio
@@ -136,8 +158,8 @@ warning at shutdown, or nothing at all.
 
 ## Cancellation is an exception
 
-`task.cancel()` schedules `asyncio.CancelledError` to be raised **at
-the task's current await point**. Since 3.8 it inherits from
+`task.cancel()` schedules `asyncio.CancelledError` to be raised
+**at the task's current await point**. Since 3.8 it inherits from
 `BaseException`, so `except Exception:` will not swallow it.
 
 Rules:
@@ -183,6 +205,19 @@ async def main():
 
 asyncio.run(main())
 ```
+`good.cancel()` raises `CancelledError` inside `worker`
+**at its current await point** — the `sleep(10)` — so the
+`except` runs, then `finally`. Because the handler re-raises,
+the task settles in
+the *cancelled* state: `await good` raises and `good.cancelled()`
+is True.
+
+`swallower` catches and returns instead, and the cancellation is
+simply lost. The task completes **successfully** with `"escaped"`,
+`bad.cancelled()` is False, and the code that asked for the
+cancellation has no way to learn it was ignored. `cancel()` is a
+request, not a guarantee — the only correct response is to clean
+up and `raise`.
 
 ```python
 import asyncio
@@ -220,6 +255,23 @@ async def main():
 
 asyncio.run(main())
 ```
+Three tools, one mechanism: a timeout works by **cancelling** what
+it wraps. Which means everything from the previous demo applies —
+a coroutine that swallows `CancelledError` cannot be timed out.
+
+- `wait_for` cancels the inner coroutine and raises
+  `TimeoutError`. Since 3.11 that *is* the builtin `TimeoutError`;
+  `asyncio.TimeoutError` is now just an alias.
+- `asyncio.timeout()` (3.11+) is the same thing as a block, so one
+  deadline can cover several awaits instead of one call.
+- `shield` breaks the chain: the cancellation stops at the shield,
+  so the outer `wait_for` gives up while `critical()` runs on to
+  completion — which is why `await task` still yields
+  `"committed"`.
+
+Reach for `shield` when work must not be left half-done, and note
+that you are still on the hook for awaiting the task you shielded;
+the timeout no longer does it for you.
 
 
 ## Never block the loop
@@ -321,6 +373,24 @@ async def main():
 
 asyncio.run(main())
 ```
+Three distinct protocols, side by side.
+
+`stream` is an **async generator** — `async def` plus `yield` —
+and the thing a plain generator cannot do is `await` between
+yields, which is exactly what streaming rows off a socket needs.
+`Paged` spells the same protocol out by hand: `__aiter__` returns
+the iterator, `__anext__` is a *coroutine*, and the loop ends on
+`StopAsyncIteration` — not `StopIteration`, which would be
+swallowed as an ordinary generator return.
+
+`session` is the `async with` form. Its advantage over a sync
+manager is the `await` in the `finally`: cleanup can flush a
+socket or roll back a transaction rather than only closing a
+handle.
+
+Note where `async` sits in `[x async for x in stream(4)]` — it
+belongs to the `for`. A plain `for` over an async generator is a
+`TypeError`, not a blocking wait.
 
 ```python
 import asyncio
@@ -361,6 +431,20 @@ async def main():
 
 asyncio.run(main())
 ```
+`asyncio.Semaphore` has the same shape as the threading one but
+**suspends instead of blocking**, so the two coroutines waiting
+their turn cost nothing while parked. This is the standard way to
+cap concurrent requests to one host — and the core of this
+lesson's exercise.
+
+`maxsize=2` on the queue gives you **back-pressure**: `put`
+suspends once the queue is full, so a fast producer cannot run
+ahead of a slow consumer and grow the buffer without bound. The
+`None` sentinel is what ends the consumer; without it the
+`while True` would park forever on an empty queue, and
+`asyncio.run` would hang. (`task_done` does nothing on its own
+here — it pairs with a `queue.join()` when you want a producer to
+wait for the backlog to drain instead of using a sentinel.)
 
 **Quiz.** What happens if you call `time.sleep(5)` inside a coroutine?
 

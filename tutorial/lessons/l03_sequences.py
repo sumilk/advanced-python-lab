@@ -42,6 +42,18 @@ LESSON = Lesson(
             except IndexError as exc:
                 print("but s[100] ->", type(exc).__name__, exc)
             """,
+            explain="""
+            The last two lines are the ones to remember: **slicing clamps,
+            indexing raises**. `s[100:200]` hands back an empty list rather
+            than complaining, which is convenient right up until it hides an
+            off-by-one — a slice that silently yields `[]` looks exactly like
+            a slice that legitimately found nothing.
+
+            Note also that `s[::-1]` builds a **reversed copy**, not a view.
+            On a large list that is real work; `reversed(s)` gives you an
+            iterator instead. And with a negative step, `start` is the higher
+            index — `s[8:2:-2]` walks *down* from 8, stopping before 2.
+            """,
         ),
         Text("""
         ## Slice assignment and deletion
@@ -115,6 +127,21 @@ LESSON = Lesson(
 
             data = list("abcdef")
             print("custom index:", data[Port(2)], data[Port(1):Port(4)])
+            """,
+            explain="""
+            A slice is an ordinary object you can build, store and pass
+            around — `seq[a:b:c]` just calls `__getitem__` with
+            `slice(a, b, c)`. `.indices(length)` is the piece worth knowing:
+            it resolves the `None`s and the negative values against a concrete
+            length and hands back a plain `(start, stop, step)` triple, which
+            is how you implement slicing on your own sequence without
+            reimplementing the clamping rules.
+
+            `__index__` is the hook that makes an object usable as an index,
+            and it is deliberately **not** `__int__`. Floats define `__int__`
+            and still cannot index a list — because a lossy conversion is
+            exactly the kind of thing you do not want happening silently
+            inside `data[x]`.
             """,
         ),
         Text("""
@@ -226,6 +253,17 @@ LESSON = Lesson(
             d2[1] = "b"
             print(d2, "| key type is still", type(next(iter(d2))).__name__)
             """,
+            explain="""
+            A dict slot is claimed by **hash plus equality**, never by type.
+            Since `1 == True == 1.0` and all three hash alike, the three-entry
+            literal collapses to a single entry holding the last value written.
+
+            The second half is the subtle one: assigning to an existing key
+            replaces the **value** and keeps the **original key object**. So
+            `d2` still reports a `float` key after `d2[1] = "b"`. Anywhere you
+            round-trip a dict through code that cares about key types —
+            serialisation especially — mixed numeric keys will bite.
+            """,
         ),
         Text("""
         ## Sets: membership, algebra, and the hashability tax
@@ -257,6 +295,19 @@ LESSON = Lesson(
             print("subset      ", {1, 2} <= a)
             print("disjoint    ", a.isdisjoint({9}))
             print("nested needs frozenset:", {frozenset({1, 2}), frozenset({1, 2})})
+            """,
+            explain="""
+            Roughly a thousandfold, and the gap widens with size: `in` on a
+            list compares elements one at a time, while on a set it is one
+            hash and a probe — O(n) against O(1). If you test membership
+            inside a loop, build the set first; you repay the construction
+            cost within a handful of lookups.
+
+            The algebra is the other reason to reach for sets: `|`, `&`, `-`,
+            `^` express "which users lost access" far more directly than
+            nested loops. The tax is hashability — a set cannot contain a set,
+            so nesting needs `frozenset`, and two equal frozensets collapse
+            into one element exactly as you would want.
             """,
         ),
         Question(
@@ -310,6 +361,23 @@ LESSON = Lesson(
             print("namedtuple:", p, p.x, "| unpacks:", (lambda x, y: x + y)(*p))
             print("_replace:", p._replace(y=99), "| _asdict:", p._asdict())
             """,
+            explain="""
+            Each of these replaces a pattern you would otherwise hand-roll:
+
+            - `deque(maxlen=3)` drops from the far end as you append, giving a
+              rolling window with no bookkeeping — and it is O(1) at *both*
+              ends, where `list.pop(0)` is O(n).
+            - `defaultdict(list)` runs the factory on a missing-key lookup, so
+              grouping loops need no `setdefault` and no `if key in`. The
+              flip side: a stray *read* creates an entry.
+            - `Counter` subtraction discards non-positive counts, which is why
+              `"aab" - "ab"` leaves only `{'a': 1}` rather than a zero entry.
+            - `ChainMap` layers mappings without copying them — first match
+              wins, so CLI beats env beats defaults, and the underlying dicts
+              stay live.
+            - `namedtuple` is a real tuple: it unpacks positionally, compares
+              by value, and `_replace` returns a **new** instance.
+            """,
         ),
         Text("""
         ## Complexity cheat sheet
@@ -343,6 +411,20 @@ LESSON = Lesson(
             # A tuple is smaller than an equivalent list: no growth headroom.
             print("list  of 5:", sys.getsizeof([1, 2, 3, 4, 5]), "bytes")
             print("tuple of 5:", sys.getsizeof((1, 2, 3, 4, 5)), "bytes")
+            """,
+            explain="""
+            The gaps between reallocations get wider as the list grows: 1, 5,
+            9, 17, 25, 33... Capacity is raised in **geometric** steps, so
+            across n appends the copying totals O(n) — which is what
+            *amortised* O(1) means. Any single `append` that trips a
+            reallocation really is O(n); it just happens rarely enough that
+            the average stays flat.
+
+            The tuple is smaller because it is sized exactly once and never
+            grows, so it carries no spare capacity. Note `getsizeof` measures
+            the container alone — the integers it points at are counted
+            separately, which is why this is a poor way to size a nested
+            structure (lesson 17 has the tool that does it properly).
             """,
         ),
         Exercise(

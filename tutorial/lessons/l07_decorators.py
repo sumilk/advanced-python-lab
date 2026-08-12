@@ -88,6 +88,20 @@ LESSON = Lesson(
                 print(f"{label:10} {fn.__name__:10} {str(inspect.signature(fn)):22} {fn.__doc__}")
             print("__wrapped__ points home:", p.__wrapped__ is target)
             """,
+            explain="""
+            Look at the `bare` row: the decorated function now calls itself
+            `wrapper`, advertises the signature `(*a, **k)`, and has lost its
+            docstring entirely. Everything that reads those — `help()`, IDE
+            completion, pytest's fixture matching, any framework that
+            dispatches on parameter names — is now working from a lie.
+
+            `functools.wraps` copies `__name__`, `__doc__`, `__qualname__`,
+            `__module__` and `__dict__` across, and sets `__wrapped__`
+            pointing at the original. That last one is the load-bearing part:
+            the wrapper's *real* signature is still `(*a, **k)`, and
+            `signature()` reports the true one only because it follows
+            `__wrapped__` back to the source.
+            """,
         ),
         Question(
             prompt="Which does `functools.wraps` NOT do?",
@@ -140,6 +154,20 @@ LESSON = Lesson(
                 return "succeeded on attempt " + str(len(calls))
 
             print(flaky())
+            """,
+            explain="""
+            Three layers, and each one has a job: `retry(...)` captures the
+            configuration and returns `decorate`; `decorate` receives the
+            function and returns `wrapper`; `wrapper` does the work. That is
+            why a parameterised decorator needs exactly one level more than a
+            plain one — `@retry(times=3)` *calls* `retry` first and applies
+            the result.
+
+            Because `times` and `delay` are closed over at decoration time,
+            every decorated function carries its own settings. And note
+            `raise last` rather than a fresh exception: when the retries are
+            exhausted the caller gets the real failure, with its original
+            message and traceback, instead of a wrapper's guess at one.
             """,
         ),
         Text("""
@@ -335,6 +363,19 @@ LESSON = Lesson(
             print("registry:", REGISTRY)
             print("augmented:", JsonExporter.plugin_name)
             print("still a normal class:", JsonExporter().export({}))
+            """,
+            explain="""
+            A class decorator receives the finished class object — the body
+            has already executed — and whatever it returns gets bound to the
+            name. Here it returns the class untouched and merely records it,
+            which is the plugin-registry pattern: importing a module is what
+            makes its exporters available.
+
+            The duplicate check is the part worth copying. It runs at
+            **import time**, so two plugins claiming `"json"` fail loudly at
+            startup rather than resolving to whichever module happened to be
+            imported last. Lesson 10 does the same job for subclasses with
+            `__init_subclass__`, no decorator required.
             """,
         ),
         Text("""

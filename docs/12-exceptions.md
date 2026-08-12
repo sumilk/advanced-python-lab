@@ -78,6 +78,19 @@ def parse(text):
 print("->", parse("42"))
 print("->", parse("abc"))
 ```
+`else` is not decoration. Code placed there runs only on success
+**and is outside the reach of the `except` clauses** — so if the
+success path itself raised a `ValueError`, it would propagate
+instead of being misreported as "not a number". Moving those two
+lines up into the `try` would reintroduce exactly that bug.
+
+The discipline that follows: keep the `try` body down to the
+single operation you are guarding, and put everything that depends
+on it in the `else`.
+
+`finally` runs on every path, including both `return`s. Watch the
+ordering — the return value is evaluated, `finally` runs, and only
+then does the function actually return.
 
 **Quiz.** Why put code in `else` rather than at the end of the `try` block?
 
@@ -264,6 +277,16 @@ except FileNotFoundError as exc:
     for note in exc.__notes__:
         print("  note:", note)
 ```
+`add_note` attaches diagnostic context **without changing the
+exception's type**, which is what makes it worth reaching for.
+Callers still catch `FileNotFoundError`; they simply also get the
+paths you searched and the command that would fix it.
+
+Before 3.11 the options were both bad: wrap the failure in a new
+exception type and break every caller that was catching the
+original, or drop the context entirely and let someone debug
+"app.conf" with no idea where you looked. Notes accumulate in
+order in `__notes__` and print beneath the traceback.
 
 **Quiz.** How does `except*` differ from `except` for an ExceptionGroup?
 
@@ -324,6 +347,21 @@ for fn in (reraise_bare, reraise_named):
         depth = len(traceback.extract_tb(exc.__traceback__))
         print(f"{fn.__name__:16} traceback depth = {depth}")
 ```
+A traceback is a linked list of frames you can walk, which is all
+the `traceback` module is doing — `extract_tb` gives you the call
+chain from where the exception was caught down to where it was
+raised.
+
+The depths at the bottom are the lesson. A bare `raise` re-raises
+the **existing** exception with its traceback untouched;
+`raise exc` adds the current frame on top. That extra frame
+carries no information beyond "this line re-raised it", and in a
+deep stack it is one more thing between the reader and the actual
+failure. Inside an `except` block, prefer a bare `raise`.
+
+(`deepest line` prints blank only because the harness compiles
+demos from a string — `linecache` has no file to read the source
+back from. Against a real module it would show the failing line.)
 
 ## Anti-patterns worth naming
 

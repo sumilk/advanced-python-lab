@@ -53,6 +53,19 @@ print(f"speedup  : {serial/threaded:.2f}x  (1.0 = no benefit at all)")
 print()
 print("switch interval:", sys.getswitchinterval(), "seconds")
 ```
+Two threads, two idle cores, and a speedup of essentially 1.00.
+Only one thread executes Python bytecode at a time, so splitting
+CPU-bound work across threads buys nothing and adds the cost of
+handing the lock back and forth — often making it slightly
+*slower* than the serial version.
+
+The switch interval is how often a holding thread is asked to give
+the GIL up. Shortening it improves responsiveness and increases
+overhead; it does not create parallelism at any setting.
+
+For work that is genuinely computational the answer is processes,
+or a library like NumPy whose inner loops release the GIL while
+running C.
 
 ```python
 import threading
@@ -76,6 +89,20 @@ print(f"serial   : {serial*1000:6.0f} ms")
 print(f"4 threads: {threaded*1000:6.0f} ms")
 print(f"speedup  : {serial/threaded:.1f}x  <- this is what threads are for")
 ```
+Same interpreter, same lock, nearly fourfold on four threads. The
+difference is that `time.sleep` — like every well-behaved I/O call
+— **releases the GIL** before it starts waiting, letting the other
+threads run while it does nothing.
+
+That is the entire rule, and it is worth stating plainly: the GIL
+serialises *computation*, not *waiting*. Reading a socket,
+querying a database, writing a file, calling an HTTP API — all of
+it overlaps happily.
+
+Which puts the choice in one sentence. Threads for waiting,
+processes for computing, and `asyncio` in lesson 19 when the
+waiting runs to thousands of concurrent operations and a thread
+each becomes too expensive.
 
 **Quiz.** Your function spends 95% of its time in `requests.get`. Threads or processes?
 
@@ -190,6 +217,20 @@ for t in ts: t.start()
 for t in ts: t.join()
 print("thread-local values kept separate:", all(a == b for a, b in seen))
 ```
+A `Semaphore` is a lock that admits *n* holders rather than one,
+which makes it the natural rate limiter — at most two workers in
+the critical section no matter how many threads are running.
+
+Notice that the semaphore is not doing the whole job. The separate
+`guard` lock exists because `active += 1` is a read, an add and a
+write; bounding concurrency to two still leaves those two racing.
+Limiting *how many* threads may enter is a different question from
+making their updates atomic, and you frequently need both.
+
+`threading.local()` sidesteps sharing altogether by giving each
+thread its own attribute namespace — the standard home for a
+per-request context or a per-thread database connection, without
+threading that state through every call.
 
 ```python
 import queue
@@ -269,6 +310,20 @@ if got:
     lock_a.release()
 print("a would-be deadlock shows up as acquire() returning False")
 ```
+Deadlock needs two threads acquiring the same locks in **opposite
+orders**, each holding what the other is waiting for. Both threads
+here take `lock_a` then `lock_b`, so one simply waits and then
+proceeds.
+
+That generalises into the one rule worth enforcing: pick a global
+order for your locks — by creation, by name, by `id()` — and
+always acquire in it. It is far easier to review than any amount
+of reasoning about interleavings.
+
+The timeout form is the safety net. `acquire(timeout=...)` returns
+a bool instead of blocking forever, which converts a hung process
+into a logged failure at a known line. A deadlocked service tells
+you nothing; a `False` tells you exactly where to look.
 
 ## `concurrent.futures`: the API to reach for
 

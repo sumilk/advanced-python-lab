@@ -102,7 +102,7 @@ def code_block(code: str, numbered: bool = True) -> str:
 # markdown-lite -> HTML
 # ---------------------------------------------------------------------------
 _INLINE_CODE = re.compile(r"`([^`]+)`")
-_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+_BOLD = re.compile(r"\*\*(.+?)\*\*")          # .+? so **bold with *italic* inside** works
 _ITALIC = re.compile(r"(?<![*\w])\*([^*\n]+)\*(?![*\w])")
 _LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 

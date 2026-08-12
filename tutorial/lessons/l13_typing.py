@@ -43,6 +43,19 @@ LESSON = Lesson(
             print("class annotations:", Config.__annotations__)
             print("only assigned ones exist:", hasattr(Config, "secret"))
             """,
+            explain="""
+            Nothing checks annotations at runtime — `add("x", "y")`
+            concatenates two strings and returns happily. They are *stored*,
+            not enforced, and that storage is the point: `__annotations__` is
+            a plain dict, and it is what type checkers, `dataclasses`,
+            `pydantic` and friends read.
+
+            The `Config` case is the one that catches people. `secret: str`
+            with no value creates an **annotation but no attribute** — hence
+            `hasattr` reporting False. That distinction is precisely how a
+            dataclass tells "field with a default" from "field the caller must
+            supply".
+            """,
         ),
         Text("""
         ## Modern syntax
@@ -81,6 +94,19 @@ LESSON = Lesson(
             MaybeInt = int | None
             print("union object:", MaybeInt, "| isinstance works:", isinstance(3, int | str))
             print("args:", MaybeInt.__args__)
+            """,
+            explain="""
+            The signature shows the habit worth forming: **accept the abstract
+            type, return the concrete one**. `Sequence[int]` takes a list or a
+            tuple without caring which, while the return type promises exactly
+            what the caller gets. Since 3.9 the built-ins are subscriptable
+            directly, so `list[str]` has replaced `typing.List[str]` outright.
+
+            The last two lines make the runtime story explicit: `int | None`
+            is a real object with `__args__` you can inspect, and it works in
+            `isinstance`. Annotations are data your program can read — which
+            is exactly how the serialisation and validation libraries build
+            themselves out of your type hints.
             """,
         ),
         Text("""
@@ -159,6 +185,23 @@ LESSON = Lesson(
             print("constrained:", double(2), double(1.5))
             print("bound vs constrained: bound=any subtype, constrained=exactly one of the listed")
             """,
+            explain="""
+            The reason to reach for a `TypeVar` rather than a union is
+            visible in the output: `double(2)` gives an `int` and
+            `double(1.5)` gives a `float`. The variable **carries the caller's
+            type through to the return**, where `int | float` would only ever
+            promise "one of these two, good luck".
+
+            Bound and constrained are genuinely different. A *bound* TypeVar
+            accepts any subtype of the bound and keeps whatever it was given;
+            a *constrained* one accepts exactly the listed types and nothing
+            derived from them. Reach for bound by default — constrained is for
+            the rare case where the implementation truly differs per type.
+
+            `bound="SupportsLt"` is a string because the name may not exist
+            yet; forward references as strings are legal anywhere in an
+            annotation.
+            """,
         ),
         Question(
             prompt="What is the difference between `TypeVar('T', int, str)` and `TypeVar('T', bound=X)`?",
@@ -212,6 +255,23 @@ LESSON = Lesson(
             add_a_cat(dogs)
             print("now the list[Dog] contains:", [type(a).__name__ for a in dogs])
             print("...which is exactly why list is invariant")
+            """,
+            explain="""
+            `chorus` accepts a `list[Dog]` because `Iterable` is
+            **covariant** — you can only read from it, and every `Dog` you
+            pull out is an `Animal`. Nothing can go wrong.
+
+            The second half shows why `list` is **invariant** instead: a list
+            can also be written to. Annotating that parameter `list[Animal]`
+            would let a checker accept our `list[Dog]`, and then the append
+            puts a non-`Dog` into it — the final line proves the damage.
+            (The demo says bare `list` only so it runs; a checker would reject
+            the honest annotation.)
+
+            Which gives a rule that avoids the whole topic: annotate
+            parameters with the most abstract read-only type that does the job
+            — `Iterable`, `Sequence`, `Mapping` — and reserve the mutable
+            concrete types for cases where you genuinely intend to write.
             """,
         ),
         Text("""
@@ -312,6 +372,22 @@ LESSON = Lesson(
             def open_file(path: str, mode: Mode = "r") -> str:
                 return f"{path} in {mode}"
             print(open_file("x.txt", "w"))
+            """,
+            explain="""
+            Every construct here is **erased at runtime**, and the printed
+            output is the proof: a `NewType` is an `int`, a `TypedDict` is a
+            `dict`. They buy checking, never enforcement.
+
+            - `@overload` declares several signatures for one implementation.
+              The stubs exist only for the checker — their `...` bodies never
+              execute, and the real `def` conventionally goes unannotated.
+            - `NewType` costs nothing yet stops a `UserId` being passed where
+              an `OrderId` belongs, which plain `int` aliases cannot do.
+            - `TypedDict` describes the shape of an ordinary dict, so existing
+              JSON-shaped code gets checked without changing at all;
+              `NotRequired` marks the optional keys.
+            - `Literal` constrains a parameter to specific values — the honest
+              type for a `mode` argument, with no enum to introduce.
             """,
         ),
         Predict(

@@ -118,6 +118,18 @@ LESSON = Lesson(
             pop = iter(pending).__next__
             print("until None:", list(iter(pop, None)))
             """,
+            explain="""
+            `iter(callable, sentinel)` calls the callable with **no
+            arguments** over and over, stopping as soon as the result equals
+            the sentinel. It converts any "keep calling until you get X" API
+            — the shape of most C-derived I/O — into something a `for` loop
+            can consume directly.
+
+            Two details worth holding on to: the comparison is `==`, not
+            `is`, so a sentinel with a custom `__eq__` can surprise you; and
+            the sentinel itself is **not** yielded, nor is anything after it —
+            the `5` sitting behind `None` is simply never reached.
+            """,
         ),
         Text("""
         ## Generators: iterators the compiler writes for you
@@ -257,6 +269,21 @@ LESSON = Lesson(
             nested = [1, [2, [3, [4, [5]]]], "text", (6, {7, 8})]
             print(list(flatten(nested)))
             """,
+            explain="""
+            `yield from` delegates to a sub-iterator, which is what keeps a
+            recursive flatten to one line — the alternative is
+            `for x in flatten(item): yield x` at every level.
+
+            Both guards are load-bearing. The string check comes first
+            because strings are iterable and a one-character string iterates
+            to *itself*, so recursing on one never terminates. And `iter(obj)`
+            in a `try` is the honest test for "is this iterable", far more
+            robust than an `isinstance` against a hand-written list of
+            container types.
+
+            Note the tail of the output: the set contributed `8, 7`. Sets have
+            no insertion order, so flattening one gives no ordering guarantee.
+            """,
         ),
         Text("""
         ## `throw` and `close`: exceptions travel inward
@@ -289,6 +316,22 @@ LESSON = Lesson(
             g.send("b")
             g.close()                           # triggers the finally
             print("state after close:", g.gi_frame is None)
+            """,
+            explain="""
+            `throw` raises the exception **at the paused `yield`**, inside the
+            generator's own frame — so the generator's `try/except` gets a
+            chance at it and, having handled it, carries straight on to accept
+            `"b"`. An exception thrown in is recoverable; that is the whole
+            point of the method.
+
+            `close()` throws `GeneratorExit` at the same spot, and that one
+            you must not swallow. The `finally` runs, the frame is torn down,
+            and `gi_frame is None` confirms the generator can never be resumed.
+
+            This is precisely the machinery behind `@contextmanager` in
+            lesson 11: an exception raised in a `with` body is thrown into the
+            generator at its `yield`, which is why the cleanup there has to
+            sit in a `finally`.
             """,
         ),
         Demo(
@@ -398,6 +441,23 @@ LESSON = Lesson(
             c, d = tee(src2, 2)
             next(src2)                    # steals an item from under tee
             print("after stealing:", list(c), list(d))
+            """,
+            explain="""
+            Branch `b` replayed all six items *after* `a` had consumed them,
+            and the source came back empty — which tells you where those items
+            were: in `tee`'s internal buffer. The buffer holds everything
+            between the furthest-ahead branch and the furthest-behind one, so
+            draining `a` completely before touching `b` stored the entire
+            stream in memory. That is the cost people forget.
+
+            The second half is the other trap: once you have tee'd an
+            iterator, the original is off limits. Pulling one item out from
+            underneath left *both* branches starting at 1, silently losing a
+            record.
+
+            So: use `tee` for branches consumed roughly in step. For two full
+            passes over something large, re-read the source or build a list on
+            purpose — at least then the memory cost is visible in the code.
             """,
         ),
         Exercise(

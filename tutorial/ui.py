@@ -161,38 +161,102 @@ def code_block(code: str, numbers: bool = True, gutter: str = "\u2502") -> str:
 # **bold**, *italic*, > quotes, fenced ``` blocks, and | tables (raw).
 # --------------------------------------------------------------------------
 _INLINE_CODE = re.compile(r"`([^`]+)`")
-_BOLD = re.compile(r"\*\*([^*]+)\*\*")
+_BOLD = re.compile(r"\*\*(.+?)\*\*")          # .+? so **bold with *italic* inside** works
 _ITALIC = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
+_STASHED = re.compile(r"\x00(\d+)\x00")
+_MARKER = re.compile(r"^[-*] |^\d+\. ")
 
 
 def inline(text: str) -> str:
-    text = _INLINE_CODE.sub(lambda m: color(m.group(1), "bright_yellow"), text)
+    """Render `code`, **bold** and *italic* spans to ANSI.
+
+    Code spans are stashed away before the bold/italic passes and restored
+    afterwards. Without that, the `**` in a span like `f(**kwargs)` is fair
+    game for the bold pattern, which eats the asterisks and hands the reader
+    Python that no longer parses.
+    """
+    stashed: list[str] = []
+
+    def stash(match: re.Match[str]) -> str:
+        stashed.append(color(match.group(1), "bright_yellow"))
+        return f"\x00{len(stashed) - 1}\x00"
+
+    def italic(match: re.Match[str]) -> str:
+        # "italic off" (23) rather than a blanket RESET: an italic nested
+        # inside a bold span must not switch the bold off along with itself.
+        if not _ENABLED:
+            return match.group(1)
+        return "\033[3m{}\033[23m".format(match.group(1))
+
+    text = _INLINE_CODE.sub(stash, text)
     text = _BOLD.sub(lambda m: color(m.group(1), "bold"), text)
-    text = _ITALIC.sub(lambda m: color(m.group(1), "italic"), text)
-    return text
+    text = _ITALIC.sub(italic, text)
+    return _STASHED.sub(lambda m: stashed[int(m.group(1))], text)
+
+
+def fill(text: str, w: int, subsequent_indent: str = "") -> str:
+    """`textwrap.fill` that measures *visible* width, so ANSI codes are free.
+
+    Wrapping already-coloured text with textwrap counts every escape sequence
+    as content and breaks lines many columns early.
+    """
+    words = text.split()
+    if not words:
+        return ""
+    lines: list[str] = []
+    current, current_len = words[0], visible_len(words[0])
+    for word in words[1:]:
+        word_len = visible_len(word)
+        limit = w - (len(subsequent_indent) if lines else 0)
+        if current_len + 1 + word_len > limit:
+            lines.append(current)
+            current, current_len = word, word_len
+        else:
+            current += " " + word
+            current_len += 1 + word_len
+    lines.append(current)
+    return ("\n" + subsequent_indent).join(lines)
 
 
 def render(md: str) -> str:
     """Render markdown-lite text to an ANSI string."""
     w = width()
-    out = []
-    in_fence = False
-    fence_buf = []
-    for raw in textwrap.dedent(md).strip("\n").split("\n"):
-        if raw.strip().startswith("```"):
-            if in_fence:
-                out.append(code_block("\n".join(fence_buf), numbers=False))
-                fence_buf = []
-                in_fence = False
-            else:
-                in_fence = True
-            continue
-        if in_fence:
-            fence_buf.append(raw)
-            continue
+    lines = textwrap.dedent(md).strip("\n").split("\n")
+    out: list[str] = []
+    index = 0
 
+    def starts_block(text: str) -> bool:
+        stripped = text.strip()
+        return (not stripped
+                or stripped.startswith(("```", "#", ">", "|"))
+                or bool(_MARKER.match(stripped)))
+
+    def paragraph(first: str) -> str:
+        """Join *first* with the wrapped continuation lines that follow it.
+
+        Inline markup is only recognised within a single string, so a
+        `**bold**` span split across two source lines has to be rejoined
+        before `inline()` sees it.
+        """
+        nonlocal index
+        parts = [first]
+        while index + 1 < len(lines) and not starts_block(lines[index + 1]):
+            index += 1
+            parts.append(lines[index].strip())
+        return " ".join(parts)
+
+    while index < len(lines):
+        raw = lines[index]
         stripped = raw.strip()
-        if not stripped:
+
+        if stripped.startswith("```"):
+            fence: list[str] = []
+            index += 1
+            while index < len(lines) and not lines[index].strip().startswith("```"):
+                fence.append(lines[index])
+                index += 1
+            out.append(code_block("\n".join(fence), numbers=False))
+        elif not stripped:
             out.append("")
         elif stripped.startswith("### "):
             out.append(color(stripped[4:], "bold", "bright_yellow"))
@@ -201,25 +265,25 @@ def render(md: str) -> str:
             out.append(color("\u25b8 " + stripped[3:], "bold", "bright_cyan"))
             out.append(color("\u2500" * min(w, len(stripped) + 2), "grey"))
         elif stripped.startswith("> "):
-            body = textwrap.fill(inline(stripped[2:]), w - 4)
-            for ln in body.split("\n"):
+            quote = [stripped[2:]]
+            while index + 1 < len(lines) and lines[index + 1].strip().startswith(">"):
+                index += 1
+                quote.append(lines[index].strip()[1:].strip())
+            for ln in fill(inline(" ".join(quote)), w - 4).split("\n"):
                 out.append(color("\u2502 ", "yellow") + color(ln, "italic"))
-        elif re.match(r"^[-*] ", stripped):
-            body = textwrap.fill(
-                inline(stripped[2:]), w - 4,
-                subsequent_indent="    ",
-            )
-            out.append("  " + color("\u2022", "cyan") + " " + body[0:].lstrip())
-        elif re.match(r"^\d+\. ", stripped):
+        elif _MARKER.match(stripped) and stripped[0] in "-*":
+            body = fill(inline(paragraph(stripped[2:])), w - 4,
+                        subsequent_indent="    ")
+            out.append("  " + color("\u2022", "cyan") + " " + body)
+        elif _MARKER.match(stripped):
             num, _, rest = stripped.partition(". ")
-            body = textwrap.fill(inline(rest), w - 5, subsequent_indent="     ")
+            body = fill(inline(paragraph(rest)), w - 5, subsequent_indent="     ")
             out.append("  " + color(num + ".", "cyan") + " " + body)
         elif stripped.startswith("|"):
             out.append(inline(raw))
         else:
-            out.append(textwrap.fill(inline(stripped), w))
-    if fence_buf:
-        out.append(code_block("\n".join(fence_buf), numbers=False))
+            out.append(fill(inline(paragraph(stripped)), w))
+        index += 1
     return "\n".join(out)
 
 

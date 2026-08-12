@@ -97,6 +97,19 @@ LESSON = Lesson(
 
             print(Connection("db", password="s3cret"))
             """,
+            explain="""
+            `field(init=False)` keeps `area` out of the generated `__init__`
+            while leaving it a genuine field — it still appears in the repr
+            and still counts for equality. `__post_init__` runs once the
+            generated `__init__` has assigned everything, which makes it the
+            right home for derived values and for validation.
+
+            `InitVar` runs the other way: a constructor parameter that is
+            **not** a field. It is handed to `__post_init__` as an argument
+            and then discarded — look at the `Connection` output and notice
+            `password` is absent from the repr entirely. For a secret that is
+            not a nicety; a dataclass repr ends up in logs.
+            """,
         ),
         Predict(
             code="""
@@ -173,6 +186,23 @@ LESSON = Lesson(
                   "| dict:", sys.getsizeof({"x": 3, "y": 4}))
             print("dataclass does NOT unpack -- that is usually a feature")
             """,
+            explain="""
+            A `NamedTuple` **is** a tuple, with everything that implies: it
+            unpacks, indexes, and carries methods. It also compares equal to a
+            plain tuple of the same values — `PointNT(3, 4) == (3, 4)` is
+            True — which is either exactly what you want or a bug that hides
+            for months.
+
+            The dataclass declines all of it on purpose. `frozen=True` makes
+            it hashable, `slots=True` drops the instance dict, and the sizes
+            tell the story: the slotted dataclass is the smallest of the
+            three, and the dict is not close.
+
+            So: `NamedTuple` when the tuple-ness is the feature — returning
+            several values, feeding an API that expects a tuple. A dataclass
+            when you are modelling a record and want it to equal only other
+            records of its own kind.
+            """,
         ),
         Text("""
         ## Enums
@@ -226,6 +256,25 @@ LESSON = Lesson(
             class Colour(StrEnum):
                 RED = "red"
             print("StrEnum is a str:", Colour.RED.upper(), Colour.RED == "red")
+            """,
+            explain="""
+            Members are **singletons**, so `is` is the correct comparison and
+            the two lookup forms — by name with `Status["CLOSED"]`, by value
+            with `Status(1)` — always hand back the same object. `@unique`
+            rejects two names sharing a value, which is worth applying by
+            default: without it, a copy-pasted `auto()` silently creates an
+            alias rather than a new member.
+
+            Enums carry behaviour, and `from_label` shows where that pays off
+            — parsing belongs on the type, not scattered across callers.
+
+            `Flag` adds bitwise combination, with `in` for membership and
+            iteration yielding the individual bits. `StrEnum` and `IntEnum`
+            exist for interop, where the value must genuinely *be* a string or
+            int for JSON or a database column. Note the cost in that last
+            line: `Colour.RED == "red"` is True, so you have traded away the
+            type distinction that made the enum worth having. Reach for them
+            only at a boundary that demands it.
             """,
         ),
         Question(
@@ -335,6 +384,24 @@ LESSON = Lesson(
             for shape in (Point(0, 0), Point(0, 5), Point(3, 3), Point(1, 2),
                           Circle(Point(0, 0), 2.0), Circle(Point(1, 1), 1.0), 42):
                 print(f"  {str(shape)[:34]:36} -> {classify(shape)}")
+            """,
+            explain="""
+            Positional patterns like `Point(x, y)` work only because
+            `__match_args__` exists — the dataclass generates it from the
+            field order, which is also why reordering fields silently changes
+            what those patterns mean.
+
+            The rule that catches everyone: **a bare name captures, it does
+            not compare**. In `Point(x=0, y=y)` the `y` binds whatever was
+            there; it is not a test against an existing variable. To compare
+            against a constant you need a literal or a dotted name such as
+            `Status.ACTIVE`.
+
+            Order matters as much as it does in an `if`/`elif` chain. `case
+            Point()` matches *any* point, so it has to sit after the specific
+            ones, and a case whose guard fails falls through to the cases
+            below rather than failing the match outright. Patterns nest
+            freely, which is what `Circle(centre=Point(0, 0))` is doing.
             """,
         ),
         Predict(

@@ -45,6 +45,18 @@ except AttributeError as exc:
 print("instance dict:", c.__dict__)
 print("class still intact:", C.shared, C().method())
 ```
+Assigning to `c.shared` does not touch the class at all — it puts
+an entry in *this instance's* `__dict__`, which then shadows the
+class attribute for this instance only. Every other instance still
+sees the original, which is what makes accidental shadowing so
+hard to spot from the outside.
+
+Even the method can be shadowed, because a plain function is a
+**non-data** descriptor and loses to the instance dict. The
+property survives because it is a **data** descriptor and wins —
+and having no setter, it refuses the assignment outright. So if an
+attribute must not be overwritten per instance, that is the
+mechanism: give it a `__set__`.
 
 
 ## The MRO and C3 linearisation
@@ -80,6 +92,19 @@ try:
 except TypeError as exc:
     print("TypeError:", str(exc)[:80])
 ```
+C3 guarantees three things at once: every class appears exactly
+once, a subclass always precedes its bases, and the left-to-right
+order of the bases is preserved. `C` therefore lands before `A`.
+
+The alternative matters. Under the old depth-first rule the order
+would have been D B A C — so a call could reach `A`'s
+implementation while `C`'s override was never consulted, even
+though `C` sits between them. That silent skipping is the bug C3
+exists to prevent.
+
+And when the constraints cannot all hold, you get a `TypeError`
+**at class creation** — at import, with a clear message, rather
+than as mysterious dispatch behaviour much later.
 
 ```python
 # C3 by hand: L(D) = D + merge(L(B), L(C), [B, C])
@@ -215,6 +240,17 @@ class D(A):
         return f"D.make -> {super().__thisclass__.__name__}"
 print(D.make())
 ```
+The no-argument `super()` is shorthand: the compiler quietly
+supplies the class the method was defined in and the instance.
+Spelling it out as `super(B, self)` means "begin the search
+**after** `B` in the MRO", which is how `C` reaches straight past
+`B` to `A`.
+
+The explicit form is required wherever the compiler cannot help —
+outside a method body, as in the middle example. And note what is
+being walked: the MRO of `type(self)`, not some lexical notion of
+"my parent". `super(B, self)` on a `C` instance is still
+traversing `C`'s MRO; it has merely been told where to start.
 
 **Quiz.** `super()` inside a method of class `X` looks up the attribute where?
 
@@ -265,6 +301,18 @@ print("sorted :", sorted(pts))
 print("equal  :", Point(1, 2) == Point(1, 2))
 print("hashable:", len({Point(1, 2), Point(1, 2)}))
 ```
+Both mixins are written against a `_fields` tuple that neither of
+them defines — the concrete class supplies it. That is the mixin
+contract in miniature: general behaviour parameterised by one
+small hook, so `Point` gets a repr, ordering, equality and
+hashing for two lines of declaration.
+
+Two details in `ComparableMixin` are worth stealing. It defines
+`__hash__` alongside `__eq__`, because defining `__eq__` alone
+sets `__hash__` to `None` and quietly makes instances unhashable.
+And it returns `NotImplemented` for a foreign type rather than
+`False`, which lets Python try the other operand's reflected
+comparison before concluding anything.
 
 ## `__slots__`: trading flexibility for memory
 
@@ -328,6 +376,20 @@ try:
 except TypeError as exc:
     print("TypeError:", exc)
 ```
+Three rules, each of which quietly undoes `__slots__` when broken.
+
+A subclass declares only its **new** slots; repeating a parent's
+name allocates a second descriptor that shadows the first and
+wastes the space you were trying to save.
+
+If any class in the chain omits `__slots__` — as `C` does —
+instances get a `__dict__` back and the memory benefit is gone.
+This is far and away the most common way slots stop working: one
+unslotted class anywhere in the hierarchy is enough.
+
+And two bases with non-empty slots cannot be combined at all,
+because their instance layouts conflict. Multiple inheritance
+works only when at most one base actually declares slots.
 
 ## Exercise — Trace and validate an MRO `[medium]`
 

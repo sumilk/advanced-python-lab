@@ -38,6 +38,17 @@ print("imported the synthetic module:", synthetic.VALUE, synthetic.greet())
 print("same object:", synthetic is mod)
 del sys.modules["synthetic"]
 ```
+The synthetic module is the whole import system in miniature. No
+file existed, nothing was searched for, and `import synthetic`
+still worked — because `sys.modules` is consulted **first**, and
+we had already put an object there.
+
+That cache is why importing a module twice executes its body once,
+and why the second import is nearly free. `sys.path` matters only
+on a cache miss. And note entry zero: the script's directory, or
+the empty string meaning the current one, searched ahead of the
+standard library. That single ordering fact is behind the
+shadowing disaster at the end of this lesson.
 
 ```python
 import sys
@@ -147,6 +158,16 @@ print("   ^ note 'json' leaked out as part of your public API")
 
 del sys.modules["demo_pkg"]
 ```
+Without `__all__`, `import *` takes every name not starting with
+an underscore — and a module you imported is a name like any
+other. `json` is now part of your published surface, and the day
+someone writes `from demo_pkg import json`, deleting your own
+import becomes a breaking change to *their* code.
+
+`__all__` states the exports deliberately. It is worth adding even
+in packages where nobody uses `import *`, because linters,
+documentation tools and IDEs all read it as the definition of
+"public" — which makes it the cheapest API boundary you can draw.
 
 ## Circular imports
 
@@ -235,6 +256,24 @@ print(sys.modules["ok_b"].use())
 for name in sources:
     del sys.modules[name]
 ```
+Two modules importing each other, and nothing breaks — because
+`import ok_b` binds the **module object**, and `ok_b.VALUE` is
+looked up when `use()` is *called*, long after both bodies have
+finished executing.
+
+Swap it for `from ok_b import VALUE` at module level and it
+collapses, because that form demands the value exist at import
+time, and one of the two modules is necessarily still half way
+through its body. The error — "cannot import name VALUE (most
+likely due to a circular import)" — names the real cause.
+
+This is also why the loader registers the module in `sys.modules`
+*before* running it: the re-entrant import finds a partially
+populated module and returns, instead of recursing forever.
+
+In order of preference: move the shared thing into a third module;
+import the module rather than its contents; import inside the
+function that needs it.
 
 **Quiz.** Which import style survives a circular dependency most reliably?
 
@@ -271,6 +310,21 @@ w = m1.Widget()
 print("isinstance across copies:", isinstance(w, m2.Widget))
 print("...this is exactly what the double-import trap produces")
 ```
+Executing the same source twice produces two unrelated class
+objects, and `isinstance` — which compares identity, not
+structure — quite correctly says no.
+
+You reach this state whenever one file becomes reachable under two
+names: running `python script.py` (where it is `__main__`) while
+something else does `import script`, or a package imported both as
+`pkg.mod` and as bare `mod` because its directory landed on
+`sys.path`. The symptoms are the ones that make people doubt the
+language — an `except MyError` that fails to catch a `MyError`, an
+`isinstance` that returns False for an object you are staring at.
+
+Avoid it structurally: launch with `python -m pkg.module`, keep
+one importable package root, and never append subdirectories to
+`sys.path`.
 
 ## Import hooks and lazy loading
 
@@ -338,6 +392,20 @@ print("Caveat: existing instances keep their OLD class object,")
 print("and `from mod import name` bindings elsewhere are not updated.")
 del sys.modules["reloadable"]
 ```
+`reload` re-executes the body into the **same module object**, so
+anything holding a reference to the module sees the new values.
+Everything that went wrong with it follows from what that does
+*not* cover.
+
+Existing instances still point at the old class object, so they do
+not gain new methods and fail `isinstance` against the new class.
+Names imported by value elsewhere — `from mod import helper` —
+still refer to the previous function. Subclasses defined in other
+modules still inherit from the superseded base.
+
+Which makes `reload` fine for poking at a constant in a REPL and
+unsound as a development workflow. When behaviour stops matching
+the source, restart the process before debugging anything else.
 
 ## Layout that avoids all of this
 
@@ -374,6 +442,16 @@ print("Check what a name resolves to with:")
 import string
 print("  string ->", getattr(string, "__file__", "builtin"))
 ```
+`sys.path[0]` is `''` — the current directory, and it is searched
+**before** the standard library. So a file named `string.py`,
+`types.py` or `random.py` in your project does not merely shadow
+the stdlib module for your own code; it shadows it for every
+library in the process that imports the same name.
+
+That indirection is what makes the failures so baffling: the
+traceback points into a third-party package, complaining that a
+module it has always relied on is missing an attribute. Printing
+`module.__file__` is the diagnosis, and it takes one line.
 
 ## Exercise — A lazy attribute loader with module __getattr__ `[tricky]`
 

@@ -58,6 +58,15 @@ for y in range(4):
     pass
 print("but a for loop leaks:", y)
 ```
+The comprehension body runs in its **own implicit function
+scope**, so its loop variable cannot overwrite a name you were
+using — `x` survives untouched. A `for` statement has no such
+scope: `y` outlives the loop, holding whatever it had on the last
+iteration.
+
+The leak is occasionally deliberate (inspecting the loop variable
+after a `break`), but far more often it is how a stale name gets
+silently reused fifty lines later.
 
 
 **Quiz.** Inside a class body, which part of `[f(x) for x in SOURCE]` can see class-level names?
@@ -100,6 +109,19 @@ print("dependent:", triangle)
 print("filtered:", [(i, j) for i in range(4) if i % 2 == 0
                            for j in range(3) if j > i])
 ```
+The `for` clauses read **left to right, outermost first** —
+exactly the order you would write the nested loops in. That is
+also why a later clause may depend on an earlier one, as
+`range(i)` does.
+
+Filters attach to the clause they follow, and the placement
+matters for cost as well as meaning: `if i % 2 == 0` is tested
+once per `i` and skips the entire inner loop, while `if j > i`
+is tested for every pair. Put the cheapest, most selective filter
+as far left as it will go.
+
+For the transpose, prefer the `zip(*matrix)` form underneath — it
+reads better and, unlike `range(3)`, does not hard-code the width.
 
 ## Conditional expressions vs filters
 
@@ -116,6 +138,16 @@ print("filter  :", [n for n in nums if n % 2])
 print("map     :", ["odd" if n % 2 else "even" for n in nums])
 print("both    :", ["big" if n > 3 else "small" for n in nums if n % 2])
 ```
+Two different `if`s, and the output lengths give them away. An
+`if` **after** the `for` is a filter — it decides whether an item
+is emitted at all, so six inputs became three. An
+`x if cond else y` **before** the `for` is an expression — it
+always emits, it just picks which value, so six inputs stayed six.
+
+That is also why the expression form has no bare `if`: an
+expression must evaluate to something, so the `else` is
+compulsory. If you catch yourself wanting to omit it, what you
+actually want is a filter.
 
 ## The walrus operator `:=`
 
@@ -185,6 +217,15 @@ import itertools
 evens = (n for n in itertools.count() if n % 2 == 0)
 print("first 5 evens:", list(itertools.islice(evens, 5)))
 ```
+`log` is the receipt: of a thousand candidates, exactly four were
+ever computed. A generator expression produces values on demand,
+so `next` stopped the moment the condition held — and because the
+two generators are chained, no intermediate list was built at any
+point.
+
+The same property makes an infinite source usable, provided
+something downstream bounds the consumption. `islice` does that
+here; a bare `list(evens)` would run until you killed it.
 
 ```python
 # Deferred evaluation bites when the source changes underneath.
