@@ -1,0 +1,23 @@
+[project]
+name = "python-tutorial"
+version = "1.0.0"
+description = "An interactive, hands-on tutorial for intermediate and advanced Python"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests", "projects"]
+addopts = "-q --tb=short -m 'not notebooks and not project'"
+markers = [
+    "notebooks: executes generated notebooks in a real kernel (opt-in, slow)",
+    "project: capstone project suites, graded on demand (an untouched starter fails by design)",
+]
+filterwarnings = [
+    # Lesson 17 demonstrates on purpose that an exception raised in __del__
+    # is printed and swallowed. pytest would otherwise turn that into an error.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]

@@ -1,0 +1,15 @@
+# generated front-ends — rebuild with `uv run learn.py notebooks|site|export docs`
+notebooks/
+site/
+docs/
+
+# your working files and progress
+workspace/
+.progress.json
+
+# python / tooling
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
