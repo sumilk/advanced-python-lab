@@ -37,7 +37,7 @@ BANNER = r"""
 def print_banner() -> None:
     ui.clear()
     print(ui.color(BANNER, "bright_cyan"))
-    print(ui.color("  Intermediate → Advanced Python, hands on.", "grey"))
+    print(ui.color("  Advanced Python Lab, hands on.", "grey"))
     print(ui.color(f"  Running Python {sys.version.split()[0]}", "grey"))
     print()
 
@@ -161,7 +161,7 @@ def cmd_export(dest: str) -> None:
 
     out = Path(dest)
     out.mkdir(parents=True, exist_ok=True)
-    index = ["# Python: Intermediate → Advanced\n"]
+    index = ["# Advanced Python Lab\n"]
     for les in all_lessons():
         parts = [f"# {les.number:02d} — {les.title}\n", textwrap.dedent(les.summary).strip(), ""]
         for block in les.blocks:

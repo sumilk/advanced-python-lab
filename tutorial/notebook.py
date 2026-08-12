@@ -227,7 +227,7 @@ def index_notebook(lessons: tuple[Lesson, ...]) -> dict[str, Any]:
     total_q = sum(len(les.questions()) for les in lessons)
     return {
         "cells": _assign_ids([
-            md("# Python: Intermediate → Advanced\n\n"
+            md("# Advanced Python Lab\n\n"
                "A hands-on course. Every lesson is a notebook: read, run the cells, "
                "change them, break them, then solve the exercises in place.\n\n"
                "**How to use a lesson notebook**\n\n"

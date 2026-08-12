@@ -1,4 +1,4 @@
-# Python: Intermediate → Advanced
+# Advanced Python Lab
 
 - [01 — Names, Objects, and Identity](01-objects.md)
 - [02 — The Data Model — Dunder Protocols](02-datamodel.md)

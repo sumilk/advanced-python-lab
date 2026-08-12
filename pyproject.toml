@@ -1,5 +1,5 @@
 [project]
-name = "python-tutorial"
+name = "advanced-python-lab"
 version = "1.0.0"
 description = "An interactive, hands-on tutorial for intermediate and advanced Python"
 requires-python = ">=3.12"

@@ -3,12 +3,12 @@
 > Go beyond Python syntax. Learn how Python actually works by building with its data model, descriptors, metaclasses, concurrency primitives, asyncio, bytecode, and AST.
 
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](https://www.python.org/)
-[![Deploy site to GitHub Pages](https://github.com/sumilk/Python_tutorial/actions/workflows/pages.yml/badge.svg)](https://github.com/sumilk/Python_tutorial/actions/workflows/pages.yml)
+[![Deploy site to GitHub Pages](https://github.com/sumilk/advanced-python-lab/actions/workflows/pages.yml/badge.svg)](https://github.com/sumilk/advanced-python-lab/actions/workflows/pages.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **22 lessons · 33 graded exercises · 45 quiz questions · 5 capstone projects · 700+ automated tests**
 
-[**Read the interactive course →**](https://sumilk.github.io/Python_tutorial/) · [**Browse the notebooks →**](https://github.com/sumilk/Python_tutorial/tree/main/notebooks) · [**Start here →**](https://github.com/sumilk/Python_tutorial/blob/main/notebooks/00-START-HERE.ipynb)
+[**Read the interactive course →**](https://sumilk.github.io/advanced-python-lab/) · [**Browse the notebooks →**](https://github.com/sumilk/advanced-python-lab/tree/main/notebooks) · [**Start here →**](https://github.com/sumilk/advanced-python-lab/blob/main/notebooks/00-START-HERE.ipynb)
 
 ---
 
@@ -82,8 +82,8 @@ That design gives the course a few useful guarantees:
 No manual environment setup is required. `uv` provisions Python 3.12 and the development dependencies on first run.
 
 ```bash
-git clone https://github.com/sumilk/Python_tutorial
-cd Python_tutorial
+git clone https://github.com/sumilk/advanced-python-lab
+cd advanced-python-lab
 
 uv run learn.py                 # interactive terminal course
 uv run learn.py notebooks       # generate/open notebooks
@@ -141,7 +141,7 @@ uv run learn.py site
 
 This produces a self-contained `site/index.html`. Every code sample is executed while the site is built, so output panels contain real transcripts rather than hand-written illustrations. Quizzes remain interactive; exercises are read-only.
 
-The published course is at **https://sumilk.github.io/Python_tutorial/**.
+The published course is at **https://sumilk.github.io/advanced-python-lab/**.
 
 Progress is shared between the terminal and notebook workflows through `.progress.json`.
 
