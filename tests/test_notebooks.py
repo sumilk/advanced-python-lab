@@ -21,7 +21,8 @@ LESSONS = all_lessons()
 @pytest.fixture(scope="session")
 def built(tmp_path_factory):
     dest = tmp_path_factory.mktemp("notebooks")
-    return write_notebooks(dest), dest
+    written, _skipped = write_notebooks(dest)
+    return written, dest
 
 
 @pytest.mark.parametrize("lesson", LESSONS, ids=[les.key for les in LESSONS])
@@ -116,3 +117,41 @@ def test_notebook_executes(lesson, tmp_path):
         allow_errors=False,
     )
     client.execute()
+
+
+# --------------------------------------------------------------------------
+# Regeneration must never destroy your work
+# --------------------------------------------------------------------------
+def test_generation_is_deterministic(tmp_path):
+    """Byte-identical rebuilds are what makes committing notebooks/ sane."""
+    first, _ = write_notebooks(tmp_path / "nb")
+    before = {p.name: p.read_text() for p in first}
+    second, skipped = write_notebooks(tmp_path / "nb")
+    assert skipped == [], "an untouched notebook should not look edited"
+    after = {p.name: p.read_text() for p in second}
+    assert before == after
+
+
+def test_edited_notebooks_are_not_clobbered(tmp_path):
+    dest = tmp_path / "nb"
+    write_notebooks(dest)
+    target = next(p for p in dest.glob("*.ipynb") if p.name != "00-START-HERE.ipynb")
+    mine = target.read_text().replace('"outputs": []', '"outputs": []', 1) + "\n"
+    target.write_text(mine)
+
+    written, skipped = write_notebooks(dest)
+    assert target in skipped, "an edited notebook must be left alone"
+    assert target not in written
+    assert target.read_text() == mine, "the learner's edit was overwritten"
+
+
+def test_force_overwrites(tmp_path):
+    dest = tmp_path / "nb"
+    write_notebooks(dest)
+    target = next(p for p in dest.glob("*.ipynb") if p.name != "00-START-HERE.ipynb")
+    target.write_text("clobber me\n")
+
+    written, skipped = write_notebooks(dest, force=True)
+    assert skipped == []
+    assert target in written
+    assert target.read_text() != "clobber me\n"

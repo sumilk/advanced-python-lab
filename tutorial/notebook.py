@@ -270,16 +270,39 @@ def index_notebook(lessons: tuple[Lesson, ...]) -> dict[str, Any]:
     }
 
 
-def write_notebooks(dest: str | Path = "notebooks") -> list[Path]:
+def serialise(notebook: dict[str, Any]) -> str:
+    return json.dumps(notebook, indent=1) + "\n"
+
+
+def write_notebooks(
+    dest: str | Path = "notebooks", force: bool = False
+) -> tuple[list[Path], list[Path]]:
+    """Generate the notebooks, returning (written, skipped).
+
+    A notebook whose content differs from what we would generate is assumed
+    to contain your work and is **left alone** — these files are where you
+    solve the exercises, and regenerating the course must never silently
+    delete that. `force=True` overwrites regardless.
+
+    Generation is deterministic (cell ids included), so an untouched notebook
+    compares equal and is rewritten harmlessly.
+    """
     out = Path(dest)
     out.mkdir(parents=True, exist_ok=True)
     lessons = all_lessons()
-    written = []
-    for lesson in lessons:
-        path = out / f"{lesson.key}.ipynb"
-        path.write_text(json.dumps(lesson_notebook(lesson), indent=1) + "\n")
+
+    targets: list[tuple[Path, dict[str, Any]]] = [
+        (out / "00-START-HERE.ipynb", index_notebook(lessons)),
+        *((out / f"{les.key}.ipynb", lesson_notebook(les)) for les in lessons),
+    ]
+
+    written: list[Path] = []
+    skipped: list[Path] = []
+    for path, notebook in targets:
+        payload = serialise(notebook)
+        if not force and path.exists() and path.read_text() != payload:
+            skipped.append(path)
+            continue
+        path.write_text(payload)
         written.append(path)
-    index = out / "00-START-HERE.ipynb"
-    index.write_text(json.dumps(index_notebook(lessons), indent=1) + "\n")
-    written.insert(0, index)
-    return written
+    return written, skipped

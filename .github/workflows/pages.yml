@@ -1,0 +1,54 @@
+name: Deploy site to GitHub Pages
+
+# The site is built in CI rather than committed: it bakes executed output
+# (timeit numbers, object sizes) into the page, so tracking it would churn
+# on every build. This rebuilds it from source on each push instead.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Validate the whole course
+        # The site only ships if every demo runs, every predicted output
+        # matches, and every reference solution still passes.
+        run: uv run pytest -q
+
+      - name: Build the site
+        run: uv run learn.py site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

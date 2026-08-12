@@ -226,10 +226,16 @@ def main(argv: list[str]) -> int:
             cmd_export(rest[0] if rest else "docs")
         case "notebooks" | "nb":
             from tutorial.notebook import write_notebooks
-            written = write_notebooks(rest[0] if rest else "notebooks")
+            force = "--force" in rest
+            targets = [a for a in rest if not a.startswith("-")]
+            written, skipped = write_notebooks(targets[0] if targets else "notebooks",
+                                               force=force)
             print(ui.ok(f"wrote {len(written)} notebooks"))
-            for path in written:
-                print(ui.color(f"    {path}", "grey"))
+            if skipped:
+                print(ui.warn(f"left {len(skipped)} edited notebook(s) untouched:"))
+                for path in skipped:
+                    print(ui.color(f"    {path}", "yellow"))
+                print(ui.info("pass --force to overwrite them"))
             print(ui.info("open with:  uv run --with jupyterlab jupyter lab notebooks/"))
         case "site":
             from tutorial.site import build_site

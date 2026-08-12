@@ -1,0 +1,364 @@
+# 03 — Sequences, Slicing, and Containers
+
+Choosing the right container is the cheapest performance work you will
+ever do. This lesson covers slicing in full (including assignment and
+deletion), sorting with keys, how dicts and sets really work, and the
+`collections` types that solve problems you have been solving by hand.
+
+## Slicing: `seq[start:stop:step]`
+
+- `start` is inclusive, `stop` exclusive — so `len(s[a:b]) == b - a`
+- omitted values mean "from the beginning" / "to the end"
+- negative indices count from the right; `-1` is the last item
+- out-of-range slice bounds are **clamped**, not an error (unlike
+  out-of-range indexing)
+- a slice of a list is always a **new, shallow** list
+
+```python
+s = list(range(10))
+print("s          ", s)
+print("s[2:5]     ", s[2:5])
+print("s[:3]      ", s[:3])
+print("s[7:]      ", s[7:])
+print("s[-3:]     ", s[-3:])
+print("s[::2]     ", s[::2])
+print("s[::-1]    ", s[::-1], "  <- reversed copy")
+print("s[8:2:-2]  ", s[8:2:-2])
+print("s[100:200] ", s[100:200], "  <- clamped, no IndexError")
+try:
+    s[100]
+except IndexError as exc:
+    print("but s[100] ->", type(exc).__name__, exc)
+```
+
+## Slice assignment and deletion
+
+Slices are *lvalues*. Assigning to one splices — the replacement need
+not be the same length (unless the slice is extended, i.e. has a
+step ≠ 1).
+
+```python
+xs = list("abcdef")
+xs[1:3] = ["X"]                 # shrink
+print(xs)
+xs[1:2] = ["p", "q", "r"]       # grow
+print(xs)
+print("xs[::2] covers", len(xs[::2]), "slots")
+xs[::2] = ["1", "2", "3", "4"]  # extended slice: length MUST match
+print(xs)
+try:
+    xs[::2] = ["only-one"]
+except ValueError as exc:
+    print("extended slice mismatch ->", exc)
+
+del xs[1::2]                    # delete every other element
+print("after del:", xs)
+
+ys = [1, 2, 3]
+ys[:] = [9, 9]                  # mutate in place, keeps identity
+print("ys[:]= keeps the object:", ys)
+```
+`lst[:] = other` is the idiom for "replace the contents while
+keeping the same list object" — important when other references
+to that list exist elsewhere.
+
+
+## `slice` objects and `__index__`
+
+`s[1:5:2]` builds `slice(1, 5, 2)` and passes it to `__getitem__`.
+`sl.indices(length)` normalises it into concrete `(start, stop, step)`
+— the single most useful method when writing your own sequence.
+
+```python
+sl = slice(None, -1, 2)
+print("slice object:", sl)
+print("normalised over len 10:", sl.indices(10))
+print("as a range:", list(range(*sl.indices(10))))
+
+# Anything with __index__ can be used as an index.
+class Port:
+    def __init__(self, n): self.n = n
+    def __index__(self): return self.n
+
+data = list("abcdef")
+print("custom index:", data[Port(2)], data[Port(1):Port(4)])
+```
+
+## Sorting: keys, stability, and `operator`
+
+- `sorted(iterable)` returns a new list; `list.sort()` sorts in place
+  and returns `None`
+- `key=` is called **once per element** (fast); `cmp` is long gone
+- Python's sort is **stable**: equal elements keep their relative
+  order. That makes multi-pass sorting possible.
+- descending: `reverse=True` — do not negate keys unless numeric
+
+```python
+from operator import attrgetter, itemgetter
+
+people = [
+    {"name": "ada", "dept": "eng", "age": 36},
+    {"name": "bob", "dept": "ops", "age": 29},
+    {"name": "cy",  "dept": "eng", "age": 29},
+    {"name": "dee", "dept": "ops", "age": 41},
+]
+
+print("by age:", [p["name"] for p in sorted(people, key=itemgetter("age"))])
+print("dept, then -age:",
+      [p["name"] for p in sorted(people, key=lambda p: (p["dept"], -p["age"]))])
+
+# Stability lets you sort in passes: last key sorted is the primary.
+tmp = sorted(people, key=itemgetter("name"))         # secondary
+tmp = sorted(tmp, key=itemgetter("dept"))            # primary
+print("two-pass:", [(p["dept"], p["name"]) for p in tmp])
+
+# For mixed direction on non-numeric keys, two passes is the way.
+print("sort() returns:", [1, 3, 2].sort())
+```
+`itemgetter("age")` beats `lambda p: p["age"]` — it is implemented
+in C and avoids a Python-level call per element. `itemgetter("a","b")`
+returns a tuple, which is exactly what a compound sort key wants.
+
+**Quiz.** `data.sort(key=len)` — what does it return?
+
+- a) The sorted list
+- b) `None`
+- c) An iterator
+- d) A copy of the list
+
+<details><summary>answer</summary>
+
+**b** — In-place mutators return `None` by convention, so you cannot accidentally chain and think you got a copy. Use `sorted()` for a value.
+</details>
+
+## Dicts: ordered, compact, and O(1)
+
+Since 3.7 insertion order is a **language guarantee**. Internally a
+dict is a compact array of entries plus a sparse index table — which
+is why iteration is fast and memory use dropped ~25% in 3.6.
+
+Key operations and their costs:
+
+| operation | cost |
+|---|---|
+| `d[k]`, `d[k] = v`, `del d[k]`, `k in d` | O(1) average |
+| iteration | O(n) in insertion order |
+| `d.popitem()` | O(1), **LIFO** |
+
+```python
+d = {"a": 1, "b": 2}
+
+# setdefault vs defaultdict vs get -- three different jobs
+d.setdefault("c", []).append(3)      # insert-if-missing, returns value
+print("setdefault:", d)
+print("get is read-only:", d.get("zz", "fallback"), "|", d)
+
+# Merging: | (3.9+), |=, and dict(**a, **b)
+defaults = {"debug": False, "level": "info"}
+user = {"level": "debug"}
+print("merged:", defaults | user)     # right side wins
+print("originals intact:", defaults, user)
+
+# Views are live windows, not snapshots
+view = d.keys()
+d["new"] = 0
+print("live view:", list(view))
+print("views support set algebra:", d.keys() & {"a", "zz"})
+
+# Mutating during iteration is an error, by design
+try:
+    for k in d:
+        d[k + "!"] = 1
+except RuntimeError as exc:
+    print("RuntimeError:", exc)
+```
+Iterate over `list(d)` if you must add or remove keys in the loop.
+The `RuntimeError` protects you from a corrupted traversal after a
+resize.
+
+```python
+# Dict key subtleties: equality, not identity, decides.
+d = {1: "int one", True: "bool true", 1.0: "float one"}
+print(d, "  <- 1 == True == 1.0, so one slot")
+
+print("hash equality:", hash(1) == hash(1.0) == hash(True))
+
+# First key inserted wins the slot; later assignments only overwrite
+# the VALUE, never the stored key object.
+d2 = {1.0: "a"}
+d2[1] = "b"
+print(d2, "| key type is still", type(next(iter(d2))).__name__)
+```
+
+## Sets: membership, algebra, and the hashability tax
+
+`x in some_set` is O(1); `x in some_list` is O(n). Converting a list
+to a set before a membership-heavy loop is the classic instant speedup.
+Sets are unordered and elements must be hashable — use `frozenset`
+when you need a set inside a set or as a dict key.
+
+```python
+import timeit
+
+haystack_list = list(range(20_000))
+haystack_set = set(haystack_list)
+needle = 19_999
+
+t_list = timeit.timeit(lambda: needle in haystack_list, number=200)
+t_set = timeit.timeit(lambda: needle in haystack_set, number=200)
+print(f"list scan: {t_list*1000:7.3f} ms")
+print(f"set probe: {t_set*1000:7.3f} ms")
+print(f"speedup:   {t_list/t_set:,.0f}x")
+
+a, b = {1, 2, 3, 4}, {3, 4, 5}
+print("union       ", a | b)
+print("intersection", a & b)
+print("difference  ", a - b)
+print("symmetric   ", a ^ b)
+print("subset      ", {1, 2} <= a)
+print("disjoint    ", a.isdisjoint({9}))
+print("nested needs frozenset:", {frozenset({1, 2}), frozenset({1, 2})})
+```
+
+**Quiz.** Which container gives O(1) appends *and* O(1) pops from the LEFT?
+
+- a) `list`
+- b) `collections.deque`
+- c) `set`
+- d) `tuple`
+
+<details><summary>answer</summary>
+
+**b** — `list.pop(0)` and `list.insert(0, x)` are O(n) — every element shifts. `deque` is a doubly-linked list of blocks: both ends are O(1).
+</details>
+
+## The `collections` toolbox
+
+- `deque` — O(1) both ends, `maxlen` gives you a ring buffer for free
+- `defaultdict` — auto-creates missing values from a factory
+- `Counter` — multiset with `most_common`, arithmetic, `total()`
+- `ChainMap` — layered lookup without copying (configs, scopes)
+- `namedtuple` — tuple with names, tiny memory footprint
+- `OrderedDict` — still useful: `move_to_end`, order-sensitive `==`
+
+```python
+from collections import ChainMap, Counter, defaultdict, deque, namedtuple
+
+# deque as a fixed-size rolling window
+window = deque(maxlen=3)
+for x in range(6):
+    window.append(x)
+print("last 3 seen:", list(window))
+window.rotate(1)
+print("rotated:", list(window))
+
+# defaultdict for grouping -- no key checks anywhere
+words = ["apple", "avocado", "banana", "blueberry", "cherry"]
+by_letter = defaultdict(list)
+for w in words:
+    by_letter[w[0]].append(w)
+print("grouped:", dict(by_letter))
+
+# Counter
+c = Counter("mississippi")
+print("top 2:", c.most_common(2), "| total:", c.total())
+print("counter math:", Counter("aab") - Counter("ab"))
+
+# ChainMap: precedence without merging
+cli, env, defaults = {"level": "debug"}, {"host": "envhost"}, {"host": "localhost", "level": "info"}
+cfg = ChainMap(cli, env, defaults)
+print("resolved:", dict(cfg), "| host ->", cfg["host"])
+
+Point = namedtuple("Point", "x y")
+p = Point(1, 2)
+print("namedtuple:", p, p.x, "| unpacks:", (lambda x, y: x + y)(*p))
+print("_replace:", p._replace(y=99), "| _asdict:", p._asdict())
+```
+
+## Complexity cheat sheet
+
+| operation | list | deque | dict/set |
+|---|---|---|---|
+| index `s[i]` | O(1) | O(n) | – |
+| append / add | O(1)* | O(1) | O(1)* |
+| insert/pop at 0 | O(n) | O(1) | – |
+| `x in s` | O(n) | O(n) | **O(1)*** |
+| sort | O(n log n) | – | – |
+
+\* amortised. Growth reallocates occasionally but averages out.
+
+```python
+import sys
+
+# Why 'amortised': lists over-allocate in geometric steps.
+prev, xs = 0, []
+growth_points = []
+for i in range(80):
+    xs.append(i)
+    size = sys.getsizeof(xs)
+    if size != prev:
+        growth_points.append((len(xs), size))
+        prev = size
+print("reallocations at (len, bytes):")
+print("  ", growth_points)
+
+# A tuple is smaller than an equivalent list: no growth headroom.
+print("list  of 5:", sys.getsizeof([1, 2, 3, 4, 5]), "bytes")
+print("tuple of 5:", sys.getsizeof((1, 2, 3, 4, 5)), "bytes")
+```
+
+## Exercise — A fixed-window rolling statistic `[medium]`
+
+Implement `RollingWindow(size)` that keeps only the most recent
+`size` values and reports statistics in O(1) per push where
+possible.
+
+- `push(x)` adds a value, evicting the oldest once full
+- `values` property → a `list` of the current window, oldest first
+- `mean` → arithmetic mean, or `None` when empty
+- `total` → sum of the window, maintained incrementally (do **not**
+  re-sum the whole window on each call)
+- `max` → the largest value in the window, or `None` when empty
+- `__len__`, and `full` → True once it holds `size` items
+- `size <= 0` raises `ValueError`
+```python
+from collections import deque
+
+
+class RollingWindow:
+    def __init__(self, size: int):
+        ...
+```
+
+## Exercise — Multi-key grouping and ranking `[tricky]`
+
+Write `rank_by_group(records, group_key, sort_key, top=None)`:
+
+- `records` is a list of dicts
+- group them by `records[group_key]`
+- within each group, sort **descending** by `records[sort_key]`,
+  breaking ties by ascending `name` so the result is deterministic
+- if `top` is given, keep only the first `top` of each group
+- return a `dict[group -> list[record]]` whose groups appear in the
+  order of each group's **first appearance** in `records`
+- the input list and its dicts must not be modified
+
+Then also expose `flatten(ranked)` returning a flat list of
+`(group, rank, name)` tuples where `rank` starts at 1 per group.
+```python
+def rank_by_group(records, group_key, sort_key, top=None):
+    ...
+
+
+def flatten(ranked):
+    ...
+```
+
+## Takeaways
+
+- Slices copy, clamp, and can be assigned to or deleted from.
+- `lst[:] = new` replaces contents in place; `lst = new` rebinds.
+- Sort is stable — chain passes for multi-key ordering.
+- Reach for `set`/`dict` the moment membership is in a loop.
+- `collections` already implements the container you were about to
+  write by hand.

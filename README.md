@@ -19,6 +19,16 @@ uv run learn.py site            # build site/index.html
 uv run pytest                   # validate the whole course
 ```
 
+`notebooks/` and `docs/` are checked in — they rebuild byte-for-byte
+identically, so diffs stay clean. `site/` is not: it bakes executed output
+into the page, so `timeit` numbers and object sizes churn on every build.
+
+```bash
+uv run learn.py notebooks       # skips notebooks you have edited
+uv run learn.py notebooks --force
+uv run learn.py export docs
+```
+
 No manual setup: `uv` provisions Python 3.12 and the dev dependencies on the
 first run.
 
@@ -43,6 +53,17 @@ check("09-descriptors/validated-field")
 
 Hints and reference solutions sit in collapsed `<details>` blocks.
 Start at `notebooks/00-START-HERE.ipynb`.
+
+`notebooks/` is committed, so a fresh clone is usable immediately and GitHub
+renders every lesson inline. Regenerating **will not overwrite work you have
+done** — a notebook you have edited is skipped and reported:
+
+```
+✓ wrote 22 notebooks
+! left 1 edited notebook(s) untouched:
+    notebooks/05-iterators.ipynb
+ℹ pass --force to overwrite them
+```
 
 ### Terminal
 
@@ -69,6 +90,35 @@ uv run learn.py site      # -> site/index.html, one self-contained file
 A reading copy of the whole course. Every code sample is **executed while the
 page is built**, so the output panels show real transcripts rather than
 illustrations. Quizzes stay interactive; exercises are read-only there.
+
+`site/index.html` is fully self-contained, so `open site/index.html` is
+usually all you need.
+
+#### Serving it over HTTP
+
+Useful when you want it on a real origin — sharing it on your LAN, or
+auto-reloading while you edit a lesson.
+
+```bash
+# no dependencies at all
+uv run python -m http.server -d site 8000
+
+# with uvicorn, which adds --reload
+uv add --dev uvicorn                                    # install it once
+uv run uvicorn serve:app --reload --port 8000
+
+# or without touching the project's dependencies
+uv run --with uvicorn uvicorn serve:app --reload --port 8000
+```
+
+`serve.py` is a ~40-line ASGI app — no framework — that serves the `site/`
+directory and refuses paths outside it. Worth a read if you have never seen
+the raw ASGI protocol: `scope` is the request, `receive` pulls request
+events, `send` pushes response events.
+
+> `uvicorn` is optional. It is an ASGI server, so it cannot serve static
+> files by itself; `serve.py` is the small app it runs. If you only want to
+> read the site, skip both and open the file.
 
 Progress is shared: solving an exercise in the notebook or the terminal
 records it in `.progress.json` either way.
@@ -125,7 +175,7 @@ them to prove the projects are solvable.
 ## The course tests itself
 
 ```bash
-uv run pytest                  # 487 tests: content, notebooks, site, projects
+uv run pytest                  # 697 tests: content, notebooks, site, projects
 ```
 
 That run enforces, for every lesson:
@@ -154,6 +204,7 @@ grades the reference solutions.
 
 ```
 learn.py                 CLI entry point
+serve.py                 optional ASGI app for serving site/ over HTTP
 tutorial/
   core.py                Lesson/Text/Demo/Question/Predict/Exercise + sandbox
   lessons/l01…l22*.py    the curriculum — content as data
@@ -166,7 +217,9 @@ tutorial/
 projects/<name>/         brief, starter, grading suite
 projects/_solutions/     reference solutions
 tests/                   the suite that validates all of the above
-notebooks/, site/        generated output
+notebooks/               generated + committed — deterministic, the main front-end
+docs/                    generated + committed — markdown, renders on GitHub
+site/                    generated, NOT committed — bakes in timings, so it churns
 workspace/               your exercise files (created on demand)
 ```
 

@@ -1,7 +1,21 @@
-# generated front-ends — rebuild with `uv run learn.py notebooks|site|export docs`
-notebooks/
+# notebooks/ and docs/ ARE tracked on purpose.
+#
+# They are byte-identical on every rebuild (verified: two consecutive builds
+# diff clean), they render directly on GitHub, and notebooks/ is the primary
+# way to take the course — a fresh clone should be usable without a build
+# step. Regenerate with:
+#     uv run learn.py notebooks
+#     uv run learn.py export docs
+# Your own edits are protected: the generator skips notebooks you have
+# changed unless you pass --force.
+
+# site/ is NOT tracked. It bakes executed output into the page, so timeit
+# numbers, object sizes and ids churn ~80 lines on every build, and it is
+# ~1 MB. Rebuild it instead:
+#     uv run learn.py site
+# (If you want to publish it via GitHub Pages, delete the next line and
+# accept the churn.)
 site/
-docs/
 
 # your working files and progress
 workspace/
