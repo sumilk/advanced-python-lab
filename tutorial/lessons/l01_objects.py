@@ -47,9 +47,9 @@ LESSON = Lesson(
             print("same object?", a is b)
             """,
             explain="""
-            `b.append(4)` **mutated** the object both names see. `b = b + [5]`
-            **rebound** `b` to a fresh object and left `a` alone. Mutation
-            affects every name; rebinding affects exactly one.
+            `b.append(4)` changes the list shared by `a` and `b`.
+            `b = b + [5]` creates a new list and binds `b` to it;
+            `a` still refers to the original list.
             """,
         ),
         Text("""
